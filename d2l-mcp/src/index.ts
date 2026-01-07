@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import "dotenv/config";
 import { randomUUID } from "node:crypto";
+import fs from "node:fs/promises";
+import path from "node:path";
 import express from "express";
 import cors from "cors";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -15,6 +17,8 @@ import { calendarTools } from "./tools/calendar.js";
 import { newsTools } from "./tools/news.js";
 import { enrollmentTools } from "./tools/enrollments.js";
 import { downloadFile } from "./tools/files.js";
+import { piazzaTools } from "./tools/piazza.js";
+import { PlanningTools } from "./study/src/planning.js";
 
 function createServer(): McpServer {
   console.error("[INIT] createServer() called - starting MCP server initialization");
@@ -223,6 +227,32 @@ function createServer(): McpServer {
     })
   );
 
+  // Register Piazza tools
+  piazzaTools.forEach((tool) => {
+    const schema = tool.inputSchema as z.ZodObject<any>;
+    server.tool(
+      tool.name,
+      tool.description,
+      schema.shape,
+      wrapToolHandler(tool.name, tool.handler)
+    );
+  });
+
+  // Register Planning tools
+  server.tool(
+    "tasks_list",
+    PlanningTools.tasks_list.description,
+    PlanningTools.tasks_list.schema,
+    wrapToolHandler("tasks_list", PlanningTools.tasks_list.handler)
+  );
+
+  server.tool(
+    "tasks_complete",
+    PlanningTools.tasks_complete.description,
+    PlanningTools.tasks_complete.schema,
+    wrapToolHandler("tasks_complete", PlanningTools.tasks_complete.handler)
+  );
+
   return server;
 }
 
@@ -252,6 +282,36 @@ async function main() {
 
     // Map to store transports by session ID
     const transports: Record<string, StreamableHTTPServerTransport> = {};
+    
+    // Session persistence
+    const SESSION_FILE = path.join(process.cwd(), '.mcp-sessions.json');
+    const validSessionIds = new Set<string>();
+    
+    // Load persisted sessions on startup
+    async function loadSessions() {
+      try {
+        const data = await fs.readFile(SESSION_FILE, 'utf-8');
+        const sessions = JSON.parse(data);
+        sessions.forEach((id: string) => validSessionIds.add(id));
+        console.error(`[SESSION] Loaded ${validSessionIds.size} persisted session(s)`);
+      } catch {
+        console.error('[SESSION] No existing sessions file found, starting fresh');
+      }
+    }
+    
+    // Save sessions to disk
+    async function saveSessions() {
+      try {
+        const sessions = Array.from(validSessionIds);
+        await fs.writeFile(SESSION_FILE, JSON.stringify(sessions, null, 2));
+        console.error(`[SESSION] Saved ${sessions.length} session(s) to disk`);
+      } catch (error) {
+        console.error('[SESSION] Failed to save sessions:', error);
+      }
+    }
+    
+    // Load sessions on startup
+    await loadSessions();
 
     // MCP POST endpoint
     const mcpPostHandler = async (
@@ -270,6 +330,8 @@ async function main() {
       );
       console.error(`[MCP] Method: ${requestMethod}`);
       console.error(`[MCP] Request ID: ${requestId}`);
+      console.error(`[MCP] Active sessions: ${Object.keys(transports).join(', ') || 'none'}`);
+      console.error(`[MCP] Headers:`, JSON.stringify(req.headers, null, 2));
       if (requestMethod === "tools/call") {
         console.error(
           `[MCP] Tool: ${requestParams.name || "unknown"}, Args:`,
@@ -286,6 +348,54 @@ async function main() {
             `[MCP] Reusing existing transport for session: ${sessionId}`
           );
           transport = transports[sessionId];
+        } else if (sessionId && validSessionIds.has(sessionId)) {
+          // Session exists but transport is gone (server restart)
+          // Silently restore the session regardless of request type
+          console.error(
+            `[MCP] Silently restoring session ${sessionId} after server restart`
+          );
+          
+          const initStartTime = Date.now();
+          transport = new StreamableHTTPServerTransport({
+            sessionIdGenerator: () => sessionId, // Reuse the persisted session ID
+            onsessioninitialized: (sid: string) => {
+              const initTime = Date.now() - initStartTime;
+              console.error(`[MCP] Session silently restored: ${sid} (${initTime}ms)`);
+              // Don't wait - already setting transports[sid] below
+            },
+            onsessionclosed: (sid: string) => {
+              console.error(`[MCP] Session closed: ${sid}`);
+              delete transports[sid];
+              validSessionIds.delete(sid);
+              void saveSessions();
+            },
+          });
+          
+          transport.onclose = () => {
+            const sid = transport.sessionId;
+            if (sid && transports[sid]) {
+              console.error(`[MCP] Transport closed for session ${sid}`);
+              delete transports[sid];
+            }
+          };
+          
+          // Connect server to transport
+          const server = createServer();
+          await server.connect(transport);
+          
+          // IMPORTANT: Manually set the sessionId and mark as initialized
+          // This bypasses the normal initialize handshake
+          (transport as any).sessionId = sessionId;
+          (transport as any)._initialized = true;
+          
+          // Store transport immediately
+          transports[sessionId] = transport;
+          
+          // Now handle the actual request through the restored transport
+          await transport.handleRequest(req, res, req.body);
+          const totalTime = Date.now() - requestStartTime;
+          console.error(`[MCP] Session restored and request handled (${totalTime}ms)`);
+          return;
         } else if (!sessionId && isInitializeRequest(req.body)) {
           // New initialization request
           const initStartTime = Date.now();
@@ -298,10 +408,14 @@ async function main() {
                 `[MCP] Session initialized with ID: ${sessionId} (${initTime}ms)`
               );
               transports[sessionId] = transport;
+              validSessionIds.add(sessionId);
+              void saveSessions();
             },
             onsessionclosed: (sessionId: string) => {
               console.error(`[MCP] Session closed: ${sessionId}`);
               delete transports[sessionId];
+              validSessionIds.delete(sessionId);
+              void saveSessions();
             },
           });
 
