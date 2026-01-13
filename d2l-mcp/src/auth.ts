@@ -64,14 +64,15 @@ export async function getToken(): Promise<string> {
 
   // Always try headless first if session exists - only show browser if login needed
   const browserStartTime = Date.now();
+  const isProduction = process.env.NODE_ENV === "production" || !process.env.DISPLAY;
   let context = await chromium.launchPersistentContext(SESSION_PATH, {
-    headless: hasExistingSession && !REMOTE_DEBUG,
+    headless: isProduction || (hasExistingSession && !REMOTE_DEBUG),
     viewport: { width: 1280, height: 720 },
     args: browserArgs.length > 0 ? browserArgs : undefined,
   });
   const browserTime = Date.now() - browserStartTime;
   console.error(
-    `[AUTH] Browser launched (headless: ${hasExistingSession}, ${browserTime}ms)`
+    `[AUTH] Browser launched (headless: ${isProduction || hasExistingSession}, ${browserTime}ms)`
   );
 
   try {

@@ -16,6 +16,21 @@ module.exports = {
       max_restarts: 10,
       min_uptime: '10s',
     },
+    {
+      name: 'study-mcp',
+      cwd: './study-mcp',
+      script: 'npm',
+      args: 'start',
+      env: {
+        NODE_ENV: 'production',
+      },
+      error_file: './logs/study-error.log',
+      out_file: './logs/study-out.log',
+      log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
+      autorestart: true,
+      max_restarts: 10,
+      min_uptime: '10s',
+    },
     // Add more MCP servers here
     // {
     //   name: 'mcp-another',

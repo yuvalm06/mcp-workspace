@@ -215,7 +215,7 @@ export const NotesTools = {
 						const { error: upsertError } = await supabase
 							.from("note_sections")
 							.upsert(batch, {
-								onConflict: "course_id,anchor",
+								onConflict: "note_sections_course_id_anchor_key",
 								ignoreDuplicates: false,
 							});
 
