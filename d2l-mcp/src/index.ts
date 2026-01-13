@@ -19,6 +19,8 @@ import { enrollmentTools } from "./tools/enrollments.js";
 import { downloadFile } from "./tools/files.js";
 import { piazzaTools } from "./tools/piazza.js";
 import { PlanningTools } from "./study/src/planning.js";
+import { NotesTools } from "./study/src/notes.js";
+import { SyncTools } from "./study/src/sync.js";
 
 function createServer(): McpServer {
   console.error("[INIT] createServer() called - starting MCP server initialization");
@@ -251,6 +253,41 @@ function createServer(): McpServer {
     PlanningTools.tasks_complete.description,
     PlanningTools.tasks_complete.schema,
     wrapToolHandler("tasks_complete", PlanningTools.tasks_complete.handler)
+  );
+
+  server.tool(
+    "notes_sync",
+    NotesTools.notes_sync.description,
+    NotesTools.notes_sync.schema,
+    wrapToolHandler("notes_sync", NotesTools.notes_sync.handler)
+  );
+
+  server.tool(
+    "notes_search",
+    NotesTools.notes_search.description,
+    NotesTools.notes_search.schema,
+    wrapToolHandler("notes_search", NotesTools.notes_search.handler)
+  );
+
+  server.tool(
+    "notes_suggest_for_item",
+    NotesTools.notes_suggest_for_item.description,
+    NotesTools.notes_suggest_for_item.schema,
+    wrapToolHandler("notes_suggest_for_item", NotesTools.notes_suggest_for_item.handler)
+  );
+
+  server.tool(
+    "notes_embed_missing",
+    NotesTools.notes_embed_missing.description,
+    NotesTools.notes_embed_missing.schema,
+    wrapToolHandler("notes_embed_missing", NotesTools.notes_embed_missing.handler)
+  );
+
+  server.tool(
+    "sync_all",
+    SyncTools.sync_all.description,
+    SyncTools.sync_all.schema,
+    wrapToolHandler("sync_all", SyncTools.sync_all.handler)
   );
 
   return server;

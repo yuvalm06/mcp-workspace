@@ -23,7 +23,7 @@ export const PlanningTools = {
                     .select('*');
                 
                 if (taskTitle) {
-                    query = query.ilike('task_title', `%${taskTitle}%`);
+                    query = query.ilike('taskTitle', `%${taskTitle}%`);
                 }
                 
                 if (status) {
