@@ -26,7 +26,7 @@ function createServer(): McpServer {
   console.error("[INIT] createServer() called - starting MCP server initialization");
   
   const server = new McpServer({
-    name: "d2l-brightspace",
+    name: "study-mcp",
     version: "1.0.0",
   });
 
@@ -289,6 +289,13 @@ function createServer(): McpServer {
     SyncTools.sync_all.schema,
     wrapToolHandler("sync_all", SyncTools.sync_all.handler)
   );
+
+  server.tool(
+    "plan_week",
+    PlanningTools.plan_week.description,
+    PlanningTools.plan_week.schema,
+    wrapToolHandler("plan_week", PlanningTools.plan_week.handler)
+  )
 
   return server;
 }

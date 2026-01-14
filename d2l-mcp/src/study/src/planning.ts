@@ -1,6 +1,7 @@
 import { tokenHandler } from "@modelcontextprotocol/sdk/server/auth/handlers/token.js";
 import {z} from "zod";
 import { supabase } from "../../utils/supabase.js";
+import { NotesTools } from "./notes.js";
 
 export const PlanningTools = {
     tasks_list: {
@@ -85,6 +86,97 @@ export const PlanningTools = {
                 return `Task ${taskName ? `"${taskName}" ` : ''}with ID ${taskId} marked as completed.`;
             } catch (error) {
                 return `Error marking task as completed: ${error instanceof Error ? error.message : String(error)}`;
+            }
+        }
+    },
+    plan_week: {
+        description: `Generate a weekly study plan based on upcoming tasks and deadlines. Use to answer: "Create a study plan for the week."`,
+        schema: {
+            windowDays: z.number().optional().describe("Number of days to plan for, default is 7"),
+            courseId: z.string().optional().describe("Filter tasks by course ID"),
+            includeNotes: z.boolean().optional().describe("Whether to include notes in the plan, default is true"),
+        },
+        handler: async (args: { windowDays?: number; courseId?: string; includeNotes?: boolean }): Promise<string> => {
+            const windowDays = args.windowDays ?? 7;
+            const courseId = args.courseId;
+            const includeNotes = args.includeNotes ?? true;
+
+            try {
+                let query = supabase
+                    .from('tasks')
+                    .select('*')
+                    .gte('due_at', new Date().toISOString())
+                    .lte('due_at', new Date(Date.now() + windowDays * 24 * 60 * 60 * 1000).toISOString())
+                    .eq('status', 'pending');
+                
+                if (courseId) {
+                    query = query.eq('course_id', courseId);
+                }
+            
+                const { data: tasks, error } = await query.order('due_at', { ascending: true });
+                
+                if (error) {
+                    console.error('[PLAN_WEEK] Supabase error:', JSON.stringify(error, null, 2));
+                    return `Error generating study plan: ${error.message || JSON.stringify(error, null, 2)}`;
+                }
+                
+                if (!tasks || tasks.length === 0) {
+                    return JSON.stringify({ overdue: [], due_soon: [], this_week: [] }, null, 2);
+                }
+
+                const now = new Date();
+                const in72h = new Date(now.getTime() + 72 * 60 * 60 * 1000);
+                const endWindow = new Date(now.getTime() + windowDays * 24 * 60 * 60 * 1000);
+
+                // Bucket tasks by time
+                const overdue: any[] = [];
+                const due_soon: any[] = [];
+                const this_week: any[] = [];
+
+                for (const task of tasks) {
+                    const dueDate = new Date(task.due_at);
+                    const taskObj = {
+                        id: task.id,
+                        title: task.taskTitle,
+                        dueDate: task.due_at,
+                        courseId: task.course_id,
+                    };
+
+                    if (dueDate < now) {
+                        overdue.push(taskObj);
+                    } else if (dueDate <= in72h) {
+                        due_soon.push(taskObj);
+                    } else if (dueDate <= endWindow) {
+                        this_week.push(taskObj);
+                    }
+                }
+
+                // Enrich due_soon tasks with notes if requested
+                if (includeNotes && due_soon.length > 0) {
+                    const enrichedDueSoon = [];
+                    for (const task of due_soon) {
+                        const notesResult = await NotesTools.notes_suggest_for_item.handler({
+                            courseId: task.courseId,
+                            title: task.title,
+                            description: undefined
+                        });
+                        const notes = JSON.parse(notesResult);
+                        enrichedDueSoon.push({
+                            task,
+                            notes
+                        });
+                    }
+                    return JSON.stringify({ overdue, due_soon: enrichedDueSoon, this_week }, null, 2);
+                }
+
+                return JSON.stringify({ overdue, due_soon, this_week }, null, 2);
+
+            } catch (error) {
+                console.error('[PLAN_WEEK] Exception:', error);
+                if (error instanceof Error) {
+                    return `Error generating study plan: ${error.message}\nStack: ${error.stack}`;
+                }
+                return `Error generating study plan: ${JSON.stringify(error, null, 2)}`;
             }
         }
     }
