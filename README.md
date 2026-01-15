@@ -63,6 +63,13 @@ PIAZZA_PASSWORD=your-piazza-password
 
 Create a Supabase project and run the schema in `src/study/db/schema.sql`.
 
+### Supabase Setup
+
+1. Create a new Supabase project
+2. Open **SQL Editor**
+3. Run `src/study/db/schema.sql`
+4. Add your Supabase URL + service key to `.env`
+
 ### 4. Run the Server
 
 ```bash

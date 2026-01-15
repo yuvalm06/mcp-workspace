@@ -8,3 +8,4 @@ dist/
 logs/
 src/study/db/notes_map.json
 src/study/db/piazza_map.json
+.mcp-sessions.json
