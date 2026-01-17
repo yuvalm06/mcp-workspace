@@ -3,7 +3,7 @@
 ## Local Setup (First Time)
 
 ```bash
-cd /Users/hamzaammar/Documents/Code/mcp-workspace
+cd /Users/hamzaammar/Documents/Code/mcp-workspace/d2l-mcp
 
 # 1. Copy environment template to D2L MCP
 cp .env.template .env
@@ -53,7 +53,7 @@ pm2 startup
 When sessions expire (~24 hours), just run locally:
 
 ```bash
-cd /Users/hamzaammar/Documents/Code/mcp-workspace
+cd /Users/hamzaammar/Documents/Code/mcp-workspace/d2l-mcp
 npm run auth-d2l           # Complete 2FA locally
 npm run sync-sessions      # Upload to EC2
 ```
@@ -68,7 +68,7 @@ ssh -i ~/.ssh/PokeIntegrations ec2-user@3.93.185.101 "cd ~/mcp-workspace && npm 
 ### Add a New MCP
 
 ```bash
-cd /Users/hamzaammar/Documents/Code/mcp-workspace
+cd /Users/hamzaammar/Documents/Code/mcp-workspace/d2l-mcp
 
 # Create new MCP directory
 mkdir my-new-mcp

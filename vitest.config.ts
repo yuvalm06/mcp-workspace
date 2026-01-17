@@ -9,8 +9,8 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html'],
-      include: ['src/**/*.ts'],
-      exclude: ['src/index.ts', 'src/auth.ts', 'src/auth-cli.ts'],
+      include: ['d2l-mcp/src/**/*.ts'],
+      exclude: ['d2l-mcp/src/index.ts', 'd2l-mcp/src/auth.ts', 'd2l-mcp/src/auth-cli.ts'],
     },
   },
 });
