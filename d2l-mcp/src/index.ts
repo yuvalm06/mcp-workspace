@@ -16,7 +16,7 @@ import { gradeTools } from "./tools/grades.js";
 import { calendarTools } from "./tools/calendar.js";
 import { newsTools } from "./tools/news.js";
 import { enrollmentTools } from "./tools/enrollments.js";
-import { downloadFile } from "./tools/files.js";
+import { downloadFile, readFile } from "./tools/files.js";
 import { piazzaTools } from "./tools/piazza.js";
 import { PlanningTools } from "./study/src/planning.js";
 import { NotesTools } from "./study/src/notes.js";
@@ -224,6 +224,31 @@ function createServer(): McpServer {
 
       if (result.content) {
         text += `\n\n--- File Content ---\n${result.content}`;
+      }
+
+      return text;
+    })
+  );
+
+  server.tool(
+    "read_file",
+    "Read a file from disk and extract its text content. Supports PDF, DOCX, TXT, MD, and other text-based formats. If you provide just a filename, it will search in the Downloads folder. You can also provide a full path. Use this to read files that were previously downloaded from D2L or any other files on your system.",
+    {
+      filePath: z
+        .string()
+        .describe(
+          "The file path or filename to read. Can be a full path (e.g., /Users/username/Downloads/file.pdf) or just a filename (e.g., file.pdf) which will be searched in Downloads folder."
+        ),
+    },
+    wrapToolHandler("read_file", async (args) => {
+      const result = await readFile(args.filePath);
+      const sizeKB = (result.size / 1024).toFixed(1);
+      let text = `File: ${result.filename}\nPath: ${result.path}\nSize: ${sizeKB} KB\nType: ${result.contentType}`;
+
+      if (result.content) {
+        text += `\n\n--- File Content ---\n${result.content}`;
+      } else {
+        text += `\n\nNote: Could not extract text content from this file type. The file may be binary or unsupported.`;
       }
 
       return text;
