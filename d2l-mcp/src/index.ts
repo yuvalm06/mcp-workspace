@@ -16,7 +16,7 @@ import { gradeTools } from "./tools/grades.js";
 import { calendarTools } from "./tools/calendar.js";
 import { newsTools } from "./tools/news.js";
 import { enrollmentTools } from "./tools/enrollments.js";
-import { downloadFile, readFile } from "./tools/files.js";
+import { downloadFile, readFile, deleteFile } from "./tools/files.js";
 import { piazzaTools } from "./tools/piazza.js";
 import { PlanningTools } from "./study/src/planning.js";
 import { NotesTools } from "./study/src/notes.js";
@@ -252,6 +252,22 @@ function createServer(): McpServer {
       }
 
       return text;
+    })
+  );
+
+  server.tool(
+    "delete_file",
+    "Delete a file from disk. Uses the same path resolution as read_file: you can pass a full path or just a filename (it will search your Downloads folder). Use this to clean up downloaded files after you are done reading them.",
+    {
+      filePath: z
+        .string()
+        .describe(
+          "The file path or filename to delete. Can be a full path (e.g., /Users/username/Downloads/file.pdf) or just a filename (e.g., file.pdf) which will be searched in the Downloads folder."
+        ),
+    },
+    wrapToolHandler("delete_file", async (args) => {
+      const result = await deleteFile(args.filePath);
+      return `Deleted file: ${result.filename}\nPath: ${result.path}`;
     })
   );
 

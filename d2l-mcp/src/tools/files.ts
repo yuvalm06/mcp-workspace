@@ -227,65 +227,65 @@ export async function downloadFile(url: string, savePath?: string) {
       
       if (!responseContentType.includes('text/html') && response.ok()) {
         console.error(`[DOWNLOAD] URL appears to be direct file download`);
-        const data = await response.body();
-        
+    const data = await response.body();
+    
         // Extract filename from content-disposition or use URL filename
-        const contentDisposition = response.headers()['content-disposition'] || '';
-        let filename = urlFilename;
-        const filenameMatch = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
-        if (filenameMatch) {
-          filename = filenameMatch[1].replace(/['"]/g, '');
-        }
-        
+    const contentDisposition = response.headers()['content-disposition'] || '';
+    let filename = urlFilename;
+    const filenameMatch = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+    if (filenameMatch) {
+      filename = filenameMatch[1].replace(/['"]/g, '');
+    }
+    
         // Save file
-        let finalPath = savePath && fs.existsSync(savePath) && !fs.statSync(savePath).isDirectory()
-          ? savePath
-          : path.join(downloadsDir, filename);
-        
-        // Handle filename collisions
-        let counter = 1;
-        const ext = path.extname(finalPath);
-        const base = path.basename(finalPath, ext);
-        const dirPath = path.dirname(finalPath);
-        
-        while (fs.existsSync(finalPath)) {
-          finalPath = path.join(dirPath, `${base} (${counter})${ext}`);
-          counter++;
-        }
-        
-        fs.writeFileSync(finalPath, data);
+    let finalPath = savePath && fs.existsSync(savePath) && !fs.statSync(savePath).isDirectory()
+      ? savePath
+      : path.join(downloadsDir, filename);
+
+    // Handle filename collisions
+    let counter = 1;
+    const ext = path.extname(finalPath);
+    const base = path.basename(finalPath, ext);
+    const dirPath = path.dirname(finalPath);
+    
+    while (fs.existsSync(finalPath)) {
+      finalPath = path.join(dirPath, `${base} (${counter})${ext}`);
+      counter++;
+    }
+
+    fs.writeFileSync(finalPath, data);
         console.error(`[DOWNLOAD] File saved successfully: ${finalPath} (${(data.length / 1024).toFixed(1)} KB)`);
-        
-        const extToMime: Record<string, string> = {
-          '.pdf': 'application/pdf',
-          '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-          '.doc': 'application/msword',
-          '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-          '.xls': 'application/vnd.ms-excel',
-          '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-          '.ppt': 'application/vnd.ms-powerpoint',
-          '.zip': 'application/zip',
-          '.txt': 'text/plain',
-          '.html': 'text/html',
-          '.jpg': 'image/jpeg',
-          '.jpeg': 'image/jpeg',
-          '.png': 'image/png',
-          '.gif': 'image/gif',
-        };
-        
+    
+    const extToMime: Record<string, string> = {
+      '.pdf': 'application/pdf',
+      '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      '.doc': 'application/msword',
+      '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      '.xls': 'application/vnd.ms-excel',
+      '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      '.ppt': 'application/vnd.ms-powerpoint',
+      '.zip': 'application/zip',
+      '.txt': 'text/plain',
+      '.html': 'text/html',
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.png': 'image/png',
+      '.gif': 'image/gif',
+    };
+    
         const finalContentType = responseContentType.includes('octet-stream') 
           ? (extToMime[ext.toLowerCase()] || responseContentType)
           : responseContentType;
-        
-        const textContent = await extractContent(data, ext);
-        
-        return {
-          path: finalPath,
-          filename: path.basename(finalPath),
-          size: data.length,
-          contentType: finalContentType,
-          content: textContent,
-        };
+
+    const textContent = await extractContent(data, ext);
+
+    return {
+      path: finalPath,
+      filename: path.basename(finalPath),
+      size: data.length,
+      contentType: finalContentType,
+      content: textContent,
+    };
       }
     }
     
@@ -367,6 +367,59 @@ export async function downloadFile(url: string, savePath?: string) {
 }
 
 /**
+ * Resolve a user-provided path or filename to an absolute file path.
+ * Mirrors the logic used by readFile so download/read/delete all agree.
+ */
+function resolveFilePath(filePath: string): string {
+  let finalPath = filePath;
+
+  // If path doesn't exist and doesn't start with /, try Downloads folder
+  if (!fs.existsSync(filePath) && !path.isAbsolute(filePath)) {
+    const downloadsPath = path.join(os.homedir(), "Downloads", filePath);
+    if (fs.existsSync(downloadsPath)) {
+      finalPath = downloadsPath;
+    }
+  }
+
+  // If still not found, try to find by filename in Downloads
+  if (!fs.existsSync(finalPath)) {
+    const downloadsDir = path.join(os.homedir(), "Downloads");
+    if (fs.existsSync(downloadsDir)) {
+      try {
+        const files = fs.readdirSync(downloadsDir);
+        const matchingFile = files.find(
+          (f) =>
+            f.toLowerCase().includes(filePath.toLowerCase()) || f === filePath
+        );
+        if (matchingFile) {
+          finalPath = path.join(downloadsDir, matchingFile);
+        }
+      } catch {
+        // Ignore readdir errors
+      }
+    }
+  }
+
+  // Check if file exists
+  if (!fs.existsSync(finalPath)) {
+    throw new Error(
+      `File not found: ${filePath}. Searched in Downloads folder: ${path.join(
+        os.homedir(),
+        "Downloads"
+      )}`
+    );
+  }
+
+  // Check if it's a directory
+  const stats = fs.statSync(finalPath);
+  if (stats.isDirectory()) {
+    throw new Error(`Path is a directory, not a file: ${finalPath}`);
+  }
+
+  return finalPath;
+}
+
+/**
  * Read a file from disk and extract its text content
  * Supports PDF, DOCX, TXT, and other text-based formats
  */
@@ -378,77 +431,41 @@ export async function readFile(filePath: string): Promise<{
   content: string | null;
   exists: boolean;
 }> {
-  // Handle relative paths - check Downloads folder first
-  let finalPath = filePath;
-  
-  // If path doesn't exist and doesn't start with /, try Downloads folder
-  if (!fs.existsSync(filePath) && !path.isAbsolute(filePath)) {
-    const downloadsPath = path.join(os.homedir(), 'Downloads', filePath);
-    if (fs.existsSync(downloadsPath)) {
-      finalPath = downloadsPath;
-    }
-  }
-  
-  // If still not found, try to find by filename in Downloads
-  if (!fs.existsSync(finalPath)) {
-    const downloadsDir = path.join(os.homedir(), 'Downloads');
-    if (fs.existsSync(downloadsDir)) {
-      try {
-        const files = fs.readdirSync(downloadsDir);
-        const matchingFile = files.find(f => 
-          f.toLowerCase().includes(filePath.toLowerCase()) || 
-          f === filePath
-        );
-        if (matchingFile) {
-          finalPath = path.join(downloadsDir, matchingFile);
-        }
-      } catch (error) {
-        // Ignore readdir errors
-      }
-    }
-  }
-  
-  // Check if file exists
-  if (!fs.existsSync(finalPath)) {
-    throw new Error(`File not found: ${filePath}. Searched in Downloads folder: ${path.join(os.homedir(), 'Downloads')}`);
-  }
-  
-  // Check if it's a directory
-  const stats = fs.statSync(finalPath);
-  if (stats.isDirectory()) {
-    throw new Error(`Path is a directory, not a file: ${finalPath}`);
-  }
-  
+  const finalPath = resolveFilePath(filePath);
+
   // Read file
   const data = fs.readFileSync(finalPath);
   const ext = path.extname(finalPath);
-  
+
   // Determine content type
   const extToMime: Record<string, string> = {
-    '.pdf': 'application/pdf',
-    '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    '.doc': 'application/msword',
-    '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    '.xls': 'application/vnd.ms-excel',
-    '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-    '.ppt': 'application/vnd.ms-powerpoint',
-    '.zip': 'application/zip',
-    '.txt': 'text/plain',
-    '.md': 'text/markdown',
-    '.html': 'text/html',
-    '.json': 'application/json',
-    '.csv': 'text/csv',
-    '.jpg': 'image/jpeg',
-    '.jpeg': 'image/jpeg',
-    '.png': 'image/png',
-    '.gif': 'image/gif',
+    ".pdf": "application/pdf",
+    ".docx":
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".doc": "application/msword",
+    ".xlsx":
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".xls": "application/vnd.ms-excel",
+    ".pptx":
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    ".ppt": "application/vnd.ms-powerpoint",
+    ".zip": "application/zip",
+    ".txt": "text/plain",
+    ".md": "text/markdown",
+    ".html": "text/html",
+    ".json": "application/json",
+    ".csv": "text/csv",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".gif": "image/gif",
   };
-  
-  const contentType = extToMime[ext.toLowerCase()] || 'application/octet-stream';
-  
+
+  const contentType = extToMime[ext.toLowerCase()] || "application/octet-stream";
+
   // Extract text content
   const textContent = await extractContent(data, ext);
-  
+
   return {
     path: finalPath,
     filename: path.basename(finalPath),
@@ -457,4 +474,30 @@ export async function readFile(filePath: string): Promise<{
     content: textContent,
     exists: true,
   };
+}
+
+/**
+ * Delete a file from disk.
+ * Uses the same resolution rules as readFile (Downloads search, etc).
+ */
+export async function deleteFile(filePath: string): Promise<{
+  path: string;
+  filename: string;
+  deleted: boolean;
+}> {
+  const finalPath = resolveFilePath(filePath);
+
+  try {
+    fs.unlinkSync(finalPath);
+    return {
+      path: finalPath,
+      filename: path.basename(finalPath),
+      deleted: true,
+    };
+  } catch (error: any) {
+    console.error(
+      `[FILE] Failed to delete file ${finalPath}: ${error?.message || error}`
+    );
+    throw new Error(`Failed to delete file: ${finalPath}`);
+  }
 }
