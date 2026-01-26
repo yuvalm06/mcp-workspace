@@ -35,9 +35,15 @@ export class D2LClient {
     console.error(`[API] Token obtained (${tokenTime}ms)`);
 
     const headers: Record<string, string> = {
-      Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
     };
+
+    // If token contains "d2lSessionVal", treat it as a cookie string
+    if (token.includes("d2lSessionVal")) {
+      headers["Cookie"] = token;
+    } else {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
 
     const options: RequestInit = {
       method,

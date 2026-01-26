@@ -191,8 +191,8 @@ router.get("/dashboard", async (req: Request, res: Response) => {
     // Test database connection first
     if (!supabase) {
       console.error("[API] dashboard error: Supabase client not initialized");
-      res.status(503).json({ 
-        error: "Database not configured", 
+      res.status(503).json({
+        error: "Database not configured",
         message: "SUPABASE_URL or DATABASE_URL environment variable is missing or invalid"
       });
       return;
@@ -232,8 +232,8 @@ router.get("/dashboard", async (req: Request, res: Response) => {
 
     // If all queries failed, return error
     if (errors.length === 3) {
-      res.status(503).json({ 
-        error: "Database queries failed", 
+      res.status(503).json({
+        error: "Database queries failed",
         details: errors,
         message: "All database queries failed. Check database connection and table existence."
       });
@@ -254,18 +254,18 @@ router.get("/dashboard", async (req: Request, res: Response) => {
   } catch (e) {
     console.error("[API] dashboard error:", e);
     const errorMessage = e instanceof Error ? e.message : String(e);
-    
+
     // Check if it's a database connection error
     if (errorMessage.includes('connection') || errorMessage.includes('ECONNREFUSED') || errorMessage.includes('timeout')) {
-      res.status(503).json({ 
-        error: "Database connection failed", 
+      res.status(503).json({
+        error: "Database connection failed",
         details: errorMessage,
         message: "Cannot connect to database. Check SUPABASE_URL/DATABASE_URL and network connectivity."
       });
     } else {
-      res.status(500).json({ 
-        error: "Failed to load dashboard", 
-        details: errorMessage 
+      res.status(500).json({
+        error: "Failed to load dashboard",
+        details: errorMessage
       });
     }
   }
@@ -297,6 +297,82 @@ router.post("/notes/embed-missing", async (req: Request, res: Response) => {
 });
 
 /** POST /api/d2l/connect — Store D2L credentials for user */
+/** POST /api/d2l/connect-cookie — Store D2L cookies directly (from WebView) */
+router.post("/d2l/connect-cookie", async (req: Request, res: Response) => {
+  const userId = req.userId!;
+  const { host, cookies } = req.body || {};
+
+  if (!host || !cookies) {
+    res.status(400).json({ error: "host and cookies required" });
+    return;
+  }
+
+  const correlationId = `cookie-${Date.now()}-${Math.random().toString(36).substring(7)}`;
+
+  try {
+    // Store cookies in user_credentials table as the 'token'
+    const { error } = await supabase
+      .from("user_credentials")
+      .upsert({
+        user_id: userId,
+        service: "d2l",
+        host: host,
+        token: cookies, // Store cookies as the token string
+        updated_at: new Date().toISOString(),
+      }, {
+        onConflict: "user_id,service"
+      });
+
+    if (error) {
+      console.error(`[API] [${correlationId}] d2l/connect-cookie error storing:`, error);
+      res.status(500).json({ error: "Failed to store cookies", correlationId });
+      return;
+    }
+
+    console.error(`[API] [${correlationId}] Cookies stored, verifying...`);
+
+    // Verify cookies work by making a test API call
+    try {
+      // Clear token cache to force refresh
+      const { clearTokenCache } = await import("../auth.js");
+      clearTokenCache(userId);
+
+      const client = new D2LClient(userId, host);
+      // This will use the stored cookies from getToken() -> D2LClient adapter
+      await client.getMyEnrollments();
+
+      console.error(`[API] [${correlationId}] Cookies verified successfully`);
+      res.json({
+        status: "connected",
+        message: "D2L connected via cookies successfully",
+        correlationId
+      });
+    } catch (verifyError) {
+      console.error(`[API] [${correlationId}] Cookie verification failed:`, verifyError);
+
+      // Delete invalid credentials
+      const { error: deleteError } = await supabase
+        .from("user_credentials")
+        .delete()
+        .eq("user_id", userId)
+        .eq("service", "d2l");
+
+      res.status(400).json({
+        error: "Invalid or expired cookies. Please try logging in again.",
+        details: verifyError instanceof Error ? verifyError.message : String(verifyError),
+        correlationId
+      });
+    }
+  } catch (e) {
+    console.error(`[API] [${correlationId}] d2l/connect-cookie error:`, e);
+    res.status(500).json({
+      error: "Failed to store cookies",
+      details: e instanceof Error ? e.message : String(e),
+      correlationId
+    });
+  }
+});
+
 /** POST /api/d2l/token — Store D2L token directly (from WebView login) */
 router.post("/d2l/token", async (req: Request, res: Response) => {
   const userId = req.userId!;
@@ -306,6 +382,8 @@ router.post("/d2l/token", async (req: Request, res: Response) => {
     res.status(400).json({ error: "host and token required" });
     return;
   }
+
+  const correlationId = `token-${Date.now()}-${Math.random().toString(36).substring(7)}`;
 
   try {
     // Store token in user_credentials table
@@ -322,36 +400,59 @@ router.post("/d2l/token", async (req: Request, res: Response) => {
       });
 
     if (error) {
-      console.error("[API] d2l/token error:", error);
-      res.status(500).json({ error: "Failed to store token" });
+      console.error(`[API] [${correlationId}] d2l/token error storing:`, error);
+      res.status(500).json({ error: "Failed to store token", correlationId });
       return;
     }
+
+    console.error(`[API] [${correlationId}] Token stored, verifying...`);
 
     // Verify token works by making a test API call
     try {
       // Clear token cache to force refresh
       const { clearTokenCache } = await import("../auth.js");
       clearTokenCache(userId);
-      
+
       const client = new D2LClient(userId, host);
       // This will use the stored token from getToken()
       await client.getMyEnrollments();
-      
-      res.json({ 
+
+      console.error(`[API] [${correlationId}] Token verified successfully`);
+      res.json({
         status: "connected",
-        message: "D2L token stored and verified successfully"
+        message: "D2L token stored and verified successfully",
+        correlationId
       });
     } catch (verifyError) {
-      console.error("[API] d2l/token verification failed:", verifyError);
-      // Don't delete the token - let user retry
-      res.status(400).json({ 
+      console.error(`[API] [${correlationId}] Token verification failed:`, verifyError);
+
+      // Delete invalid token from database
+      const { error: deleteError } = await supabase
+        .from("user_credentials")
+        .delete()
+        .eq("user_id", userId)
+        .eq("service", "d2l")
+        .eq("token", token); // Only delete this specific token
+
+      if (deleteError) {
+        console.error(`[API] [${correlationId}] Failed to delete invalid token:`, deleteError);
+      } else {
+        console.error(`[API] [${correlationId}] Deleted invalid token from database`);
+      }
+
+      res.status(400).json({
         error: "Invalid or expired token. Please try logging in again.",
-        details: verifyError instanceof Error ? verifyError.message : String(verifyError)
+        details: verifyError instanceof Error ? verifyError.message : String(verifyError),
+        correlationId
       });
     }
   } catch (e) {
-    console.error("[API] d2l/token error:", e);
-    res.status(500).json({ error: "Failed to store token", details: e instanceof Error ? e.message : String(e) });
+    console.error(`[API] [${correlationId}] d2l/token error:`, e);
+    res.status(500).json({
+      error: "Failed to store token",
+      details: e instanceof Error ? e.message : String(e),
+      correlationId
+    });
   }
 });
 
@@ -391,9 +492,9 @@ router.post("/d2l/connect", async (req: Request, res: Response) => {
       const client = new D2LClient(userId, host);
       // Try to get enrollments as a test - this will trigger authentication
       await client.getMyEnrollments();
-      
+
       // If we get here, authentication succeeded
-      res.json({ 
+      res.json({
         status: "connected",
         message: "D2L credentials verified and stored successfully"
       });
@@ -404,23 +505,23 @@ router.post("/d2l/connect", async (req: Request, res: Response) => {
         .delete()
         .eq("user_id", userId)
         .eq("service", "d2l");
-      
+
       console.error("[API] d2l/connect authentication failed:", authError);
       const errorMessage = authError instanceof Error ? authError.message : String(authError);
-      
+
       // Check for browser launch failures (Playwright not installed)
       if (errorMessage.includes("ENOENT") || errorMessage.includes("spawn") || errorMessage.includes("chromium") || errorMessage.includes("playwright")) {
-        res.status(500).json({ 
+        res.status(500).json({
           error: "Browser automation is not available. Please contact support.",
           details: "Playwright/Chromium is not installed in the backend container."
         });
       } else if (errorMessage.includes("login") || errorMessage.includes("password") || errorMessage.includes("credentials") || errorMessage.includes("Invalid") || errorMessage.includes("incorrect")) {
-        res.status(401).json({ 
+        res.status(401).json({
           error: "Invalid D2L credentials. Please check your username and password.",
           details: errorMessage
         });
       } else {
-        res.status(500).json({ 
+        res.status(500).json({
           error: "Failed to authenticate with D2L",
           details: errorMessage
         });
@@ -443,7 +544,7 @@ router.get("/d2l/status", async (req: Request, res: Response) => {
       .eq("user_id", userId)
       .eq("service", "d2l")
       .maybeSingle();
-    
+
     const connected = !credError && !!creds && !!creds.username;
 
     // Get last sync time from tasks table
@@ -454,7 +555,7 @@ router.get("/d2l/status", async (req: Request, res: Response) => {
       .eq("source", "d2l")
       .order("created_at", { ascending: false })
       .limit(1);
-    
+
     const lastTask = Array.isArray(lastTaskData) ? lastTaskData[0] : lastTaskData;
 
     // Get courses count (optional - don't fail if this doesn't work)
@@ -494,7 +595,7 @@ router.post("/d2l/sync", async (req: Request, res: Response) => {
   try {
     const result = await SyncTools.sync_all.handler({ userId });
     const parsed = JSON.parse(result);
-    
+
     if (parsed.success) {
       res.json({
         status: "completed",
@@ -528,20 +629,20 @@ router.get("/d2l/courses", async (req: Request, res: Response) => {
       .eq("user_id", userId)
       .eq("service", "d2l")
       .limit(1);
-    
+
     const creds = Array.isArray(credsData) ? credsData[0] : credsData;
     if (!creds) {
       res.status(404).json({ error: "D2L credentials not found. Please connect D2L first." });
       return;
     }
-    
+
     const client = new D2LClient(userId, creds.host);
     const enrollments = await client.getMyEnrollments() as { Items: any[] };
-    
+
     const courses = enrollments.Items
-      .filter((e: any) => 
-        e.OrgUnit?.Type?.Code === "Course Offering" && 
-        e.Access?.IsActive && 
+      .filter((e: any) =>
+        e.OrgUnit?.Type?.Code === "Course Offering" &&
+        e.Access?.IsActive &&
         e.Access?.CanAccess
       )
       .map((e: any) => ({
@@ -579,13 +680,13 @@ router.get("/d2l/courses/:courseId/announcements", async (req: Request, res: Res
       .eq("user_id", userId)
       .eq("service", "d2l")
       .limit(1);
-    
+
     const creds = Array.isArray(credsData) ? credsData[0] : credsData;
     if (!creds) {
       res.status(404).json({ error: "D2L credentials not found. Please connect D2L first." });
       return;
     }
-    
+
     const client = new D2LClient(userId, creds.host);
     const news = await client.getNews(orgUnitId) as any[];
     const { marshalAnnouncements } = await import("../utils/marshal.js");
@@ -594,9 +695,9 @@ router.get("/d2l/courses/:courseId/announcements", async (req: Request, res: Res
     res.json({ announcements });
   } catch (e) {
     console.error("[API] d2l/courses/:courseId/announcements error:", e);
-    res.status(500).json({ 
-      error: "Failed to fetch announcements", 
-      details: e instanceof Error ? e.message : String(e) 
+    res.status(500).json({
+      error: "Failed to fetch announcements",
+      details: e instanceof Error ? e.message : String(e)
     });
   }
 });
@@ -620,13 +721,13 @@ router.get("/d2l/courses/:courseId/assignments", async (req: Request, res: Respo
       .eq("user_id", userId)
       .eq("service", "d2l")
       .limit(1);
-    
+
     const creds = Array.isArray(credsData) ? credsData[0] : credsData;
     if (!creds) {
       res.status(404).json({ error: "D2L credentials not found. Please connect D2L first." });
       return;
     }
-    
+
     const client = new D2LClient(userId, creds.host);
     const { assignmentTools } = await import("../tools/dropbox.js");
     const folders = await client.getDropboxFolders(orgUnitId) as any[];
@@ -677,7 +778,7 @@ router.post("/piazza/connect", async (req: Request, res: Response) => {
       return;
     }
 
-    res.json({ 
+    res.json({
       status: "connected",
       message: "Piazza credentials stored successfully"
     });
@@ -698,9 +799,9 @@ router.get("/piazza/status", async (req: Request, res: Response) => {
       .eq("user_id", userId)
       .eq("service", "piazza")
       .limit(1);
-    
+
     const creds = Array.isArray(credsData) ? credsData[0] : credsData;
-    
+
     // Also try to get cookie to see if actually authenticated
     let cookieHeader: string | null = null;
     try {
@@ -708,7 +809,7 @@ router.get("/piazza/status", async (req: Request, res: Response) => {
     } catch (e) {
       // Ignore - might not be authenticated yet
     }
-    
+
     // Connected if credentials exist (even if not authenticated yet)
     const connected = !credError && !!creds && !!creds.email;
 
@@ -719,7 +820,7 @@ router.get("/piazza/status", async (req: Request, res: Response) => {
       .eq("user_id", req.userId!)
       .order("updated_at", { ascending: false })
       .limit(1);
-    
+
     const lastPost = Array.isArray(lastPostData) ? lastPostData[0] : lastPostData;
 
     // Get classes count
@@ -761,7 +862,7 @@ router.post("/piazza/sync", async (req: Request, res: Response) => {
     });
 
     const parsed = JSON.parse(result);
-    
+
     if (parsed.success) {
       res.json({
         status: "completed",
@@ -798,7 +899,7 @@ router.post("/piazza/embed-missing", async (req: Request, res: Response) => {
     });
 
     const parsed = JSON.parse(result);
-    
+
     if (parsed.success) {
       res.json({
         status: "completed",
@@ -842,7 +943,7 @@ router.get("/piazza/search", async (req: Request, res: Response) => {
     });
 
     const parsed = JSON.parse(result);
-    
+
     if (parsed.success && parsed.results) {
       // Transform results to match expected format
       const hits = (parsed.results || []).map((r: any) => ({
@@ -853,7 +954,7 @@ router.get("/piazza/search", async (req: Request, res: Response) => {
         score: r.similarity || 0,
         courseId: r.course_id,
       }));
-      
+
       res.json({ hits });
     } else {
       res.status(500).json({ error: parsed.error || "Search failed" });

@@ -16,46 +16,34 @@ interface D2LWebViewScreenProps {
   route: {
     params: {
       host: string;
+      username?: string;
+      password?: string;
     };
   };
 }
 
 export default function D2LWebViewScreen({ route }: D2LWebViewScreenProps) {
-  const { host } = route.params;
+  const { host, username, password } = route.params;
   const navigation = useNavigation();
   const webViewRef = useRef<WebView>(null);
   const [loading, setLoading] = useState(true);
   const [capturedToken, setCapturedToken] = useState<string | null>(null);
+  const [capturedCookies, setCapturedCookies] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   const d2lUrl = `https://${host}/d2l/home`;
 
-  // Intercept network requests to capture D2L API token
-  const handleShouldStartLoadWithRequest = (request: any): boolean => {
-    const url = request.url;
-    
-    // Check if URL contains a token parameter (some APIs pass it in URL)
-    if (url.includes('/d2l/api/')) {
-      const tokenMatch = url.match(/[?&]token=([A-Za-z0-9\-._~+/]+=*)/);
-      if (tokenMatch && tokenMatch[1]) {
-        console.log('[D2L WebView] Found token in URL');
-        setCapturedToken(tokenMatch[1]);
-      }
-    }
-    
-    return true;
-  };
-
-  // Inject JavaScript to intercept fetch/XMLHttpRequest and capture tokens
-  // This mimics the Playwright approach: listen to ALL requests and check headers
+  // Simple injection: just intercept requests and check cookies periodically
   const injectedJavaScript = `
     (function() {
+      if (window.d2lInjected) return;
+      window.d2lInjected = true;
+
       let tokenCaptured = false;
       
       function sendToken(token) {
         if (!tokenCaptured && token && token.length > 20) {
           tokenCaptured = true;
-          console.log('Token captured!', token.substring(0, 20) + '...');
           window.ReactNativeWebView.postMessage(JSON.stringify({
             type: 'TOKEN_CAPTURED',
             token: token
@@ -63,153 +51,185 @@ export default function D2LWebViewScreen({ route }: D2LWebViewScreenProps) {
         }
       }
 
-      // Override fetch using Proxy to catch ALL requests (including D2L's own)
-      const originalFetch = window.fetch;
-      window.fetch = new Proxy(originalFetch, {
-        apply: function(target, thisArg, argumentsList) {
-          const url = argumentsList[0];
-          const options = argumentsList[1] || {};
-          
-          // Check if this is a D2L API call
-          if (typeof url === 'string' && url.includes('/d2l/api/')) {
-            const headers = options.headers || {};
-            
-            // Log for debugging - but send to React Native so we can see it
-            window.ReactNativeWebView.postMessage(JSON.stringify({
-              type: 'DEBUG',
-              message: 'Fetch intercepted: ' + url.substring(0, 50)
-            }));
-            
-            // Check headers object (plain object)
-            if (headers && typeof headers === 'object' && !(headers instanceof Headers)) {
-              const authHeader = headers['Authorization'] || headers['authorization'];
-              if (authHeader && typeof authHeader === 'string' && authHeader.startsWith('Bearer ')) {
-                console.log('[INTERCEPT] Found Bearer token in fetch headers!');
-                window.ReactNativeWebView.postMessage(JSON.stringify({
-                  type: 'DEBUG',
-                  message: 'Found Bearer token in fetch!'
-                }));
-                sendToken(authHeader.substring(7));
-              } else {
-                // Log what headers we DO have
-                const headerKeys = Object.keys(headers);
-                window.ReactNativeWebView.postMessage(JSON.stringify({
-                  type: 'DEBUG',
-                  message: 'Fetch headers: ' + headerKeys.join(', ')
-                }));
-              }
-            }
-            
-            // Check if headers is a Headers object
-            if (headers instanceof Headers) {
-              const authHeader = headers.get('Authorization') || headers.get('authorization');
-              if (authHeader && authHeader.startsWith('Bearer ')) {
-                console.log('[INTERCEPT] Found Bearer token in Headers object!');
-                window.ReactNativeWebView.postMessage(JSON.stringify({
-                  type: 'DEBUG',
-                  message: 'Found Bearer token in Headers!'
-                }));
-                sendToken(authHeader.substring(7));
-              }
-            }
-            
-            // Also check URL for token
-            const urlTokenMatch = url.match(/[?&]token=([A-Za-z0-9\\-._~+/]+=*)/);
-            if (urlTokenMatch && urlTokenMatch[1]) {
-              console.log('[INTERCEPT] Found token in URL!');
-              sendToken(urlTokenMatch[1]);
-            }
-          }
-          
-          // Call original fetch
-          return target.apply(thisArg, argumentsList);
-        }
-      });
-
-
-      // Intercept XMLHttpRequest - this is CRITICAL because D2L might use XHR
-      const originalOpen = XMLHttpRequest.prototype.open;
-      const originalSetRequestHeader = XMLHttpRequest.prototype.setRequestHeader;
-      const originalSend = XMLHttpRequest.prototype.send;
-      
-      XMLHttpRequest.prototype.open = function(method, url, ...rest) {
-        this._url = typeof url === 'string' ? url : '';
-        this._method = method;
-        this._headers = {};
-        
-        // Log XHR opens for D2L API calls
-        if (this._url.includes('/d2l/api/')) {
+      function sendCookies(cookies) {
+        if (!tokenCaptured && cookies) {
+          tokenCaptured = true;
           window.ReactNativeWebView.postMessage(JSON.stringify({
-            type: 'DEBUG',
-            message: 'XHR opened: ' + this._url.substring(0, 50)
+            type: 'COOKIES_CAPTURED',
+            cookies: cookies
           }));
         }
-        
-        return originalOpen.apply(this, [method, url, ...rest]);
+      }
+
+      // Simple fetch interception
+      const originalFetch = window.fetch;
+      window.fetch = function(...args) {
+        const url = args[0];
+        const options = args[1] || {};
+        if (typeof url === 'string' && url.includes('/d2l/api/')) {
+          const headers = options.headers || {};
+          const auth = headers['Authorization'] || headers['authorization'];
+          if (auth && auth.startsWith('Bearer ')) {
+            sendToken(auth.substring(7));
+          }
+        }
+        return originalFetch.apply(this, args);
+      };
+
+      // Simple XHR interception
+      const originalOpen = XMLHttpRequest.prototype.open;
+      const originalSetHeader = XMLHttpRequest.prototype.setRequestHeader;
+      const originalSend = XMLHttpRequest.prototype.send;
+      
+      XMLHttpRequest.prototype.open = function(method, url) {
+        this._url = url;
+        this._headers = {};
+        return originalOpen.apply(this, arguments);
       };
       
       XMLHttpRequest.prototype.setRequestHeader = function(header, value) {
-        const headerLower = header.toLowerCase();
-        this._headers[headerLower] = value;
+        this._headers[header.toLowerCase()] = value;
+        if (this._url && this._url.includes('/d2l/api/') && header.toLowerCase() === 'authorization' && value.startsWith('Bearer ')) {
+          sendToken(value.substring(7));
+        }
+        return originalSetHeader.apply(this, arguments);
+      };
+      
+      XMLHttpRequest.prototype.send = function() {
+        if (this._url && this._url.includes('/d2l/api/')) {
+          const auth = this._headers['authorization'];
+          if (auth && auth.startsWith('Bearer ')) {
+            sendToken(auth.substring(7));
+          }
+        }
+        return originalSend.apply(this, arguments);
+      };
+
+      // Auto-login
+      const NOTE_USER = ${JSON.stringify(username || '')};
+      const NOTE_PASS = ${JSON.stringify(password || '')};
+      
+      if (NOTE_USER && NOTE_PASS) {
+        const isLoginPage = window.location.href.includes('login') || 
+                           window.location.href.includes('microsoftonline') || 
+                           window.location.href.includes('sso') || 
+                           window.location.href.includes('adfs');
         
-        // CRITICAL: Check for Authorization header when it's being set
-        if (this._url && this._url.includes('/d2l/api/')) {
-          const valuePreview = value ? (value.length > 50 ? value.substring(0, 50) + '...' : value) : 'null';
-          window.ReactNativeWebView.postMessage(JSON.stringify({
-            type: 'DEBUG',
-            message: 'XHR setHeader: ' + header + ' = ' + valuePreview
-          }));
+        if (isLoginPage) {
+          setTimeout(function() {
+            // Find username
+            const usernameField = document.querySelector('input#userNameInput') || 
+                                 document.querySelector('input[name="UserName"]') ||
+                                 document.querySelector('input[type="email"]') ||
+                                 document.querySelector('input[name="username"]');
+            
+            if (usernameField) {
+              usernameField.value = NOTE_USER;
+              usernameField.dispatchEvent(new Event('input', { bubbles: true }));
+              
+              setTimeout(function() {
+                // Click Next or press Enter
+                const nextBtn = document.querySelector('input[type="submit"]') || 
+                               document.querySelector('button[type="submit"]');
+                if (nextBtn) {
+                  nextBtn.click();
+                } else {
+                  usernameField.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true }));
+                }
+                
+                setTimeout(function() {
+                  // Find password
+                  const passwordField = document.querySelector('input#passwordInput') || 
+                                       document.querySelector('input[name="Password"]') ||
+                                       document.querySelector('input[type="password"]');
+                  
+                  if (passwordField) {
+                    passwordField.value = NOTE_PASS;
+                    passwordField.dispatchEvent(new Event('input', { bubbles: true }));
+                    
+                    setTimeout(function() {
+                      // Submit
+                      const submitBtn = document.querySelector('input[type="submit"]') || 
+                                       document.querySelector('button[type="submit"]');
+                      if (submitBtn) {
+                        submitBtn.click();
+                      } else {
+                        passwordField.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true }));
+                      }
+                    }, 500);
+                  }
+                }, 2000);
+              }, 500);
+            }
+          }, 1000);
+        }
+      }
+
+      // Check cookies immediately and then every 2 seconds
+      function checkCookies() {
+        if (tokenCaptured) {
+          console.log('[COOKIE CHECK] Token already captured, skipping');
+          return false;
+        }
+        try {
+          const cookies = document.cookie;
+          console.log('[COOKIE CHECK] Checking cookies, length:', cookies ? cookies.length : 0);
+          console.log('[COOKIE CHECK] All cookies:', cookies);
           
-          if (headerLower === 'authorization' && typeof value === 'string' && value.startsWith('Bearer ')) {
-            console.log('[INTERCEPT] Found Bearer token in XHR setRequestHeader!');
-            window.ReactNativeWebView.postMessage(JSON.stringify({
-              type: 'DEBUG',
-              message: 'FOUND BEARER TOKEN IN XHR!'
-            }));
-            sendToken(value.substring(7));
-          }
-        }
-        return originalSetRequestHeader.apply(this, [header, value]);
-      };
-
-      // Check headers right before send (in case header was set after setRequestHeader)
-      XMLHttpRequest.prototype.send = function(...args) {
-        if (this._url && this._url.includes('/d2l/api/')) {
-          const authHeader = this._headers['authorization'];
-          if (authHeader && typeof authHeader === 'string' && authHeader.startsWith('Bearer ')) {
-            console.log('[INTERCEPT] Found Bearer token in XHR send!');
-            sendToken(authHeader.substring(7));
-          }
-        }
-        return originalSend.apply(this, args);
-      };
-
-      // Monitor for successful login and wait for D2L's JavaScript to make API calls
-      let lastUrl = window.location.href;
-      let loginDetected = false;
-      const urlCheckInterval = setInterval(() => {
-        const currentUrl = window.location.href;
-        if (currentUrl !== lastUrl) {
-          lastUrl = currentUrl;
-          // If we're on the home page or a course page, we're logged in
-          if ((currentUrl.includes('/d2l/home') || currentUrl.includes('/d2l/le/content/')) && !loginDetected) {
-            loginDetected = true;
+          if (cookies && (cookies.includes('d2lSessionVal') || cookies.includes('d2lSecureSessionVal'))) {
+            const sessionVal = cookies.match(/d2lSessionVal=([^;]+)/)?.[1];
+            const secureSessionVal = cookies.match(/d2lSecureSessionVal=([^;]+)/)?.[1];
+            console.log('[COOKIE CHECK] Found - sessionVal:', sessionVal ? 'YES' : 'NO', 'secureSessionVal:', secureSessionVal ? 'YES' : 'NO');
             
-            window.ReactNativeWebView.postMessage(JSON.stringify({
-              type: 'LOGIN_SUCCESS',
-              url: currentUrl
-            }));
-            
-            // Wait for D2L's JavaScript to load, then it will make API calls automatically
-            // Our interception above will catch those calls and extract the Bearer token
-            console.log('Login detected, waiting for D2L to make API calls...');
+            if (sessionVal || secureSessionVal) {
+              let cookieString = '';
+              if (sessionVal) cookieString += 'd2lSessionVal=' + sessionVal;
+              if (secureSessionVal) {
+                if (cookieString) cookieString += '; ';
+                cookieString += 'd2lSecureSessionVal=' + secureSessionVal;
+              }
+              console.log('[COOKIE CHECK] Sending cookies!');
+              sendCookies(cookieString);
+              return true;
+            }
+          } else {
+            console.log('[COOKIE CHECK] No D2L cookies found');
           }
+        } catch (e) {
+          console.error('[COOKIE CHECK] Error:', e);
         }
+        return false;
+      }
+
+      console.log('[INJECT] Script loaded, starting cookie checks...');
+      
+      // Check immediately
+      setTimeout(function() {
+        console.log('[COOKIE CHECK] Initial check...');
+        checkCookies();
       }, 1000);
 
-      // D2L's JavaScript will automatically make API calls when the page loads
-      // Our fetch/XHR interception above will catch those calls and extract Bearer tokens
-      // No need to manually trigger calls - just wait for D2L's natural API calls
+      // Check every 2 seconds
+      let checkCount = 0;
+      const cookieCheck = setInterval(function() {
+        checkCount++;
+        console.log('[COOKIE CHECK] Interval check #' + checkCount);
+        
+        if (tokenCaptured) {
+          console.log('[COOKIE CHECK] Token captured, stopping');
+          clearInterval(cookieCheck);
+          return;
+        }
+        
+        if (checkCount > 60) {
+          console.log('[COOKIE CHECK] Max checks reached, final check...');
+          clearInterval(cookieCheck);
+          checkCookies();
+          return;
+        }
+        
+        checkCookies();
+      }, 2000);
     })();
     true;
   `;
@@ -217,46 +237,20 @@ export default function D2LWebViewScreen({ route }: D2LWebViewScreenProps) {
   const handleMessage = (event: any) => {
     try {
       const data = JSON.parse(event.nativeEvent.data);
-      console.log('[D2L WebView] Received message:', data.type);
-      
+      console.log('[D2L WebView] Message received:', data.type);
+
       if (data.type === 'TOKEN_CAPTURED' && data.token) {
-        console.log('[D2L WebView] Token captured! Length:', data.token.length);
+        console.log('[D2L WebView] TOKEN CAPTURED!');
         setCapturedToken(data.token);
-        // Auto-submit if token is captured
-        if (data.token && !submitting) {
-          setTimeout(() => {
-            handleSubmit();
-          }, 500);
+        if (!submitting) {
+          setTimeout(() => handleSubmit(), 500);
         }
-      } else if (data.type === 'LOGIN_SUCCESS') {
-        console.log('[D2L WebView] Login successful, triggering API call...');
-        // Wait for D2L's JS to initialize, then make API call
-        setTimeout(() => {
-          webViewRef.current?.injectJavaScript(`
-            (function() {
-              console.log('[AUTH] Triggering API call to capture token...');
-              // Try both fetch and XHR
-              const xhr = new XMLHttpRequest();
-              xhr.open('GET', '/d2l/api/lp/1.43/enrollments/myenrollments/');
-              xhr.setRequestHeader('Accept', 'application/json');
-              xhr.withCredentials = true;
-              xhr.onload = function() {
-                console.log('[AUTH] XHR completed, status:', xhr.status);
-              };
-              xhr.send();
-              
-              // Also try fetch
-              fetch('/d2l/api/lp/1.43/enrollments/myenrollments/', {
-                method: 'GET',
-                headers: { 'Accept': 'application/json' },
-                credentials: 'include'
-              }).catch(() => {});
-            })();
-            true;
-          `);
-        }, 3000);
-      } else if (data.type === 'DEBUG') {
-        console.log('[D2L WebView] Debug:', data.message);
+      } else if (data.type === 'COOKIES_CAPTURED' && data.cookies) {
+        console.log('[D2L WebView] COOKIES CAPTURED!', data.cookies.substring(0, 50));
+        setCapturedCookies(data.cookies);
+        if (!submitting) {
+          setTimeout(() => handleSubmit(), 500);
+        }
       }
     } catch (e) {
       console.error('[D2L WebView] Error parsing message:', e);
@@ -264,50 +258,24 @@ export default function D2LWebViewScreen({ route }: D2LWebViewScreenProps) {
   };
 
   const handleSubmit = async () => {
-    if (!capturedToken) {
-      // Try to extract token one more time
-      webViewRef.current?.injectJavaScript(`
-        (function() {
-          // Try to get token from localStorage or cookies
-          const cookies = document.cookie.split(';');
-          for (let cookie of cookies) {
-            if (cookie.includes('d2l') || cookie.includes('token')) {
-              window.ReactNativeWebView.postMessage(JSON.stringify({
-                type: 'DEBUG',
-                message: 'Found cookie: ' + cookie.substring(0, 50)
-              }));
-            }
-          }
-          // Make a test API call to trigger token capture
-          fetch('/d2l/api/lp/1.43/enrollments/myenrollments/', {
-            method: 'GET',
-            headers: { 'Accept': 'application/json' }
-          }).catch(() => {});
-        })();
-        true;
-      `);
-      
-      Alert.alert('No Token Captured', 'Please log in to D2L first. The token will be captured automatically when you access your courses.');
+    if (!capturedToken && !capturedCookies) {
+      Alert.alert('No Credentials', 'Please log in first.');
       return;
     }
 
     setSubmitting(true);
     try {
-      await d2lService.connectWithToken({ host, token: capturedToken });
-      Alert.alert(
-        'Success',
-        'D2L connected successfully!',
-        [
-          {
-            text: 'OK',
-            onPress: () => {
-              navigation.goBack();
-            },
-          },
-        ]
-      );
+      if (capturedCookies) {
+        await d2lService.connectWithCookies({ host, cookies: capturedCookies });
+      } else {
+        await d2lService.connectWithToken({ host, token: capturedToken || "" });
+      }
+
+      Alert.alert('Success', 'D2L connected!', [
+        { text: 'OK', onPress: () => navigation.goBack() }
+      ]);
     } catch (error: any) {
-      Alert.alert('Connection Failed', error.message || 'Failed to connect to D2L');
+      Alert.alert('Error', error.message || 'Failed to connect');
       setSubmitting(false);
     }
   };
@@ -315,10 +283,7 @@ export default function D2LWebViewScreen({ route }: D2LWebViewScreenProps) {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.closeButton}
-          onPress={() => navigation.goBack()}
-        >
+        <TouchableOpacity onPress={() => navigation.goBack()}>
           <AntDesign name="close" size={24} color="#1e293b" />
         </TouchableOpacity>
         <Text style={styles.title}>Sign in to D2L</Text>
@@ -328,7 +293,7 @@ export default function D2LWebViewScreen({ route }: D2LWebViewScreenProps) {
       {loading && (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#6366f1" />
-          <Text style={styles.loadingText}>Loading D2L login...</Text>
+          <Text style={styles.loadingText}>Loading...</Text>
         </View>
       )}
 
@@ -337,156 +302,32 @@ export default function D2LWebViewScreen({ route }: D2LWebViewScreenProps) {
         source={{ uri: d2lUrl }}
         style={styles.webview}
         onLoadStart={() => setLoading(true)}
-        onLoadEnd={() => {
-          setLoading(false);
-          // Re-inject JavaScript after page loads
-          if (webViewRef.current) {
-            setTimeout(() => {
-              webViewRef.current?.injectJavaScript(injectedJavaScript);
-            }, 500);
-          }
-        }}
-        onNavigationStateChange={(navState) => {
-          // Check if we've navigated away from login page
-          if (navState.url.includes('/d2l/home') && !capturedToken) {
-            console.log('[D2L WebView] Detected successful login, URL:', navState.url);
-            // Wait for D2L's JS to initialize, then trigger API call
-            setTimeout(() => {
-              webViewRef.current?.injectJavaScript(`
-                (function() {
-                  console.log('Login detected, making API call to capture token...');
-                  // Make API call - D2L's JS will add Bearer token automatically
-                  fetch('/d2l/api/lp/1.43/enrollments/myenrollments/', {
-                    method: 'GET',
-                    headers: { 'Accept': 'application/json' },
-                    credentials: 'include'
-                  }).catch(() => {});
-                })();
-                true;
-              `);
-            }, 3000);
-          }
-        }}
+        onLoadEnd={() => setLoading(false)}
         onMessage={handleMessage}
         injectedJavaScript={injectedJavaScript}
         javaScriptEnabled={true}
         domStorageEnabled={true}
-        startInLoadingState={true}
-        onShouldStartLoadWithRequest={handleShouldStartLoadWithRequest}
       />
 
       <View style={styles.footer}>
-        {capturedToken ? (
+        {capturedToken || capturedCookies ? (
           <View style={styles.tokenStatus}>
             <AntDesign name="checkcircle" size={20} color="#10b981" />
-            <Text style={styles.tokenStatusText}>Token captured! Click Connect to continue.</Text>
+            <Text style={styles.tokenStatusText}>Credentials captured!</Text>
           </View>
         ) : (
           <View style={styles.tokenStatus}>
             <AntDesign name="infocircle" size={20} color="#6366f1" />
             <Text style={styles.tokenStatusText}>
-              After logging in, click "Try to Capture Token" or navigate to your courses. 
-              The token will be captured automatically from API requests.
+              {username && password ? 'Auto-login in progress...' : 'Please log in to D2L'}
             </Text>
           </View>
         )}
 
-        {!capturedToken && (
-          <TouchableOpacity
-            style={styles.extractButton}
-            onPress={() => {
-              console.log('[D2L WebView] Button pressed - attempting to capture token');
-              // Try to extract token - make API call which should trigger our interception
-              if (!webViewRef.current) {
-                console.error('[D2L WebView] WebView ref is null!');
-                return;
-              }
-              webViewRef.current.injectJavaScript(`
-                (function() {
-                  console.log('Attempting to capture token...');
-                  
-                  // Method 1: Check D2L's JavaScript state for token
-                  let foundToken = false;
-                  
-                  // Check window.D2L object - D2L stores tokens in various places
-                  if (window.D2L) {
-                    try {
-                      // Try window.D2L.WebUI.Token.getToken()
-                      if (window.D2L.WebUI && window.D2L.WebUI.Token) {
-                        if (typeof window.D2L.WebUI.Token.getToken === 'function') {
-                          try {
-                            const token = window.D2L.WebUI.Token.getToken();
-                            if (token && typeof token === 'string' && token.length > 20) {
-                              window.ReactNativeWebView.postMessage(JSON.stringify({
-                                type: 'TOKEN_CAPTURED',
-                                token: token
-                              }));
-                              foundToken = true;
-                              return;
-                            }
-                          } catch (e) {
-                            console.log('Error calling getToken():', e);
-                          }
-                        }
-                        // Check if token is stored directly
-                        if (window.D2L.WebUI.Token.token && typeof window.D2L.WebUI.Token.token === 'string') {
-                          const token = window.D2L.WebUI.Token.token;
-                          if (token.length > 20) {
-                            window.ReactNativeWebView.postMessage(JSON.stringify({
-                              type: 'TOKEN_CAPTURED',
-                              token: token
-                            }));
-                            foundToken = true;
-                            return;
-                          }
-                        }
-                      }
-                      
-                      // Try other D2L token locations
-                      if (window.D2L.Api && window.D2L.Api.Token) {
-                        const token = window.D2L.Api.Token;
-                        if (typeof token === 'string' && token.length > 20) {
-                          window.ReactNativeWebView.postMessage(JSON.stringify({
-                            type: 'TOKEN_CAPTURED',
-                            token: token
-                          }));
-                          foundToken = true;
-                          return;
-                        }
-                      }
-                    } catch (e) {
-                      console.log('Error accessing D2L object:', e);
-                    }
-                  }
-                  
-                  // Method 2: Navigate to a page that triggers D2L's own API calls
-                  // D2L's JavaScript will add Bearer tokens to its own requests
-                  if (!foundToken) {
-                    window.ReactNativeWebView.postMessage(JSON.stringify({
-                      type: 'DEBUG',
-                      message: 'No token in D2L state. Navigating to trigger D2L API calls...'
-                    }));
-                    
-                    // Navigate to courses page which will trigger D2L's JavaScript to make API calls
-                    // Our interception will catch those calls
-                    setTimeout(() => {
-                      window.location.href = '/d2l/home';
-                    }, 500);
-                  }
-                })();
-                true;
-              `);
-            }}
-          >
-            <AntDesign name="reload" size={18} color="#6366f1" style={{ marginRight: 8 }} />
-            <Text style={styles.extractButtonText}>Try to Capture Token</Text>
-          </TouchableOpacity>
-        )}
-
         <TouchableOpacity
-          style={[styles.connectButton, (!capturedToken || submitting) && styles.connectButtonDisabled]}
+          style={[styles.connectButton, (!capturedToken && !capturedCookies || submitting) && styles.connectButtonDisabled]}
           onPress={handleSubmit}
-          disabled={!capturedToken || submitting}
+          disabled={(!capturedToken && !capturedCookies) || submitting}
         >
           {submitting ? (
             <ActivityIndicator color="#fff" />
@@ -505,7 +346,7 @@ export default function D2LWebViewScreen({ route }: D2LWebViewScreenProps) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#ffffff',
+    backgroundColor: '#fff',
   },
   header: {
     flexDirection: 'row',
@@ -516,16 +357,13 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#e2e8f0',
   },
-  closeButton: {
-    padding: 8,
-  },
   title: {
     fontSize: 18,
     fontWeight: '600',
     color: '#1e293b',
   },
   placeholder: {
-    width: 40,
+    width: 32,
   },
   loadingContainer: {
     position: 'absolute',
@@ -533,14 +371,14 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
-    zIndex: 1,
+    zIndex: 1000,
   },
   loadingText: {
     marginTop: 12,
-    fontSize: 14,
+    fontSize: 16,
     color: '#64748b',
   },
   webview: {
@@ -550,7 +388,7 @@ const styles = StyleSheet.create({
     padding: 16,
     borderTopWidth: 1,
     borderTopColor: '#e2e8f0',
-    backgroundColor: '#ffffff',
+    backgroundColor: '#fff',
   },
   tokenStatus: {
     flexDirection: 'row',
@@ -571,30 +409,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#6366f1',
-    borderRadius: 12,
-    padding: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    borderRadius: 8,
   },
   connectButtonDisabled: {
-    opacity: 0.5,
+    backgroundColor: '#cbd5e1',
   },
   connectButtonText: {
-    color: '#ffffff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  extractButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#eef2ff',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#c7d2fe',
-  },
-  extractButtonText: {
-    color: '#6366f1',
+    color: '#fff',
     fontSize: 16,
     fontWeight: '600',
   },

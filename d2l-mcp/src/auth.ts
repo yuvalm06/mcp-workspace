@@ -16,12 +16,12 @@ function getSessionPath(userId?: string): string {
 }
 
 // Load D2L token for a user from database
-async function getD2LToken(userId?: string): Promise<{ host: string; token: string } | null> {
+async function getD2LToken(userId?: string): Promise<{ host: string; token: string; updated_at?: string } | null> {
   if (userId) {
     try {
       const { data, error } = await supabase
         .from("user_credentials")
-        .select("host, token")
+        .select("host, token, updated_at")
         .eq("user_id", userId)
         .eq("service", "d2l")
         .limit(1);
@@ -32,6 +32,7 @@ async function getD2LToken(userId?: string): Promise<{ host: string; token: stri
         return {
           host: cred.host || process.env.D2L_HOST || "learn.ul.ie",
           token: cred.token,
+          updated_at: cred.updated_at,
         };
       }
     } catch (e) {
@@ -105,12 +106,21 @@ export async function getToken(userId?: string): Promise<string> {
   if (userId) {
     const userToken = await getD2LToken(userId);
     if (userToken && userToken.token) {
-      console.error(`[AUTH] Using stored token for user ${userId}`);
-      userTokenCache[cacheKey] = {
-        token: userToken.token,
-        expiresAt: Date.now() + 82800000, // 23 hours (tokens typically last 23h)
-      };
-      return userToken.token;
+      // Check if token is already aged (older than 20 hours)
+      const tokenAge = Date.now() - (new Date(userToken.updated_at || 0).getTime());
+      const maxAge = 20 * 60 * 60 * 1000; // 20 hours
+      
+      if (tokenAge > maxAge) {
+        console.error(`[AUTH] Stored token for user ${userId} is too old (${Math.round(tokenAge / 3600000)}h), will refresh`);
+        // Don't use cached token, continue to refresh
+      } else {
+        console.error(`[AUTH] Using stored token for user ${userId} (age: ${Math.round(tokenAge / 3600000)}h)`);
+        userTokenCache[cacheKey] = {
+          token: userToken.token,
+          expiresAt: Date.now() + 82800000, // 23 hours (tokens typically last 23h)
+        };
+        return userToken.token;
+      }
     }
 
     // Fall back to credentials if no token
@@ -144,15 +154,29 @@ export async function getToken(userId?: string): Promise<string> {
   }
 
   // Return cached token if still valid (with 1 hour buffer for safety)
-  if (userTokenCache[cacheKey]?.token && Date.now() < userTokenCache[cacheKey].expiresAt - 3600000) {
-    const cacheTime = Date.now() - authStartTime;
-    const timeUntilExpiry = userTokenCache[cacheKey].expiresAt - Date.now();
-    console.error(
-      `[AUTH] Token cache hit for user ${userId || 'default'} (${cacheTime}ms, expires in ${Math.round(
-        timeUntilExpiry / 1000
-      )}s)`
-    );
-    return userTokenCache[cacheKey].token;
+  // Also check if token is already aged beyond reasonable use
+  const cachedToken = userTokenCache[cacheKey];
+  if (cachedToken?.token) {
+    const timeUntilExpiry = cachedToken.expiresAt - Date.now();
+    const isExpired = timeUntilExpiry < 3600000; // Less than 1 hour left
+    
+    if (!isExpired) {
+      const cacheTime = Date.now() - authStartTime;
+      console.error(
+        `[AUTH] Token cache hit for user ${userId || 'default'} (${cacheTime}ms, expires in ${Math.round(
+          timeUntilExpiry / 1000
+        )}s)`
+      );
+      return cachedToken.token;
+    } else {
+      console.error(
+        `[AUTH] Cached token for user ${userId || 'default'} is expired or too close to expiry (${Math.round(
+          timeUntilExpiry / 1000
+        )}s), refreshing`
+      );
+      // Clear expired cache
+      delete userTokenCache[cacheKey];
+    }
   }
 
   console.error(`[AUTH] Token cache miss - refreshing token for user ${userId || 'default'}`);
