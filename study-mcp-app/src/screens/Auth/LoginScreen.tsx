@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
 import { useNavigation } from '@react-navigation/native';
+import { authService } from '../../services/auth';
 
 export default function LoginScreen() {
   const [email, setEmail] = useState('');
@@ -26,17 +27,18 @@ export default function LoginScreen() {
 
     setLoading(true);
     try {
-      await login(email, password);
-      // Navigation will be handled by the navigator based on auth state
-    } catch (error: any) {
-      let errorMessage = error.message || 'An error occurred';
-      
-      // Provide helpful message for USER_PASSWORD_AUTH not enabled
-      if (errorMessage === 'USER_PASSWORD_AUTH_NOT_ENABLED') {
-        errorMessage = 'Please enable USER_PASSWORD_AUTH in your Cognito App Client settings, or contact support.';
+      const result = await authService.handleLogin(email, password);
+      if (result?.user) {
+        console.log('Redirecting to MainTabs...');
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'MainTabs' }],
+        });
+      } else {
+        Alert.alert('Login Failed', 'Unable to log in. Please try again.');
       }
-      
-      Alert.alert('Login Failed', errorMessage);
+    } catch (error: any) {
+      Alert.alert('Login Failed', error.message || 'An error occurred');
     } finally {
       setLoading(false);
     }

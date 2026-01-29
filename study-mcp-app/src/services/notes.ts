@@ -1,4 +1,5 @@
 import { apiClient } from '../config/api';
+import { supabase } from './supabase';
 import {
   PresignUploadRequest,
   PresignUploadResponse,
@@ -82,3 +83,47 @@ export class NotesService {
 }
 
 export const notesService = new NotesService();
+
+export const getDashboard = async () => {
+  const { data, error } = await supabase.functions.invoke('study-logic', {
+    method: 'GET',
+    path: '/dashboard',
+  });
+
+  if (error) {
+    console.error('Failed to fetch dashboard:', error);
+    throw error;
+  }
+
+  return data;
+};
+
+export const searchNotes = async (query: string) => {
+  const { data, error } = await supabase.functions.invoke('study-logic', {
+    method: 'GET',
+    path: `/search?q=${encodeURIComponent(query)}`,
+  });
+
+  if (error) {
+    console.error('Failed to search notes:', error);
+    throw error;
+  }
+
+  return data;
+};
+
+export const presignUpload = async (filename: string, contentType: string, size: number) => {
+  const { data, error } = await supabase.functions.invoke('study-logic', {
+    method: 'POST',
+    path: '/notes/presign-upload',
+    body: { filename, contentType, size },
+    headers: { 'Content-Type': 'application/json' },
+  });
+
+  if (error) {
+    console.error('Failed to get presigned upload URL:', error);
+    throw error;
+  }
+
+  return data;
+};

@@ -26,16 +26,3 @@ if (CLIENT_SECRET) {
     '⚠️  Client secret detected. SECRET_HASH will be computed for requests.'
   );
 }
-
-// Create Cognito User Pool instance
-export const userPool = new CognitoUserPool({
-  UserPoolId: USER_POOL_ID,
-  ClientId: CLIENT_ID,
-});
-
-export const cognitoConfig = {
-  userPoolId: USER_POOL_ID,
-  clientId: CLIENT_ID,
-  clientSecret: CLIENT_SECRET,
-  region: REGION,
-};

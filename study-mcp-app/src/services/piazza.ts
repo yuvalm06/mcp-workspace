@@ -58,9 +58,13 @@ export class PiazzaService {
           (process.env.EXPO_PUBLIC_API_BASE_URL || 'https://api.hamzaammar.ca'));
       }
       
-      const response = await apiClient.post('/api/piazza/connect', credentials);
-      if (response.status !== 200) {
-        throw new Error(response.data?.error || 'Failed to connect to Piazza');
+      const response = await supabase.functions.invoke('study-logic', {
+        method: 'POST',
+        path: '/piazza/connect',
+        body: credentials,
+      });
+      if (response.error) {
+        throw new Error(response.error.message || 'Failed to connect to Piazza');
       }
       console.log('[Piazza] Connection successful');
     } catch (error: any) {
@@ -89,14 +93,16 @@ export class PiazzaService {
       const isHealthy = await this.checkBackendHealth();
       if (!isHealthy) {
         throw new Error('Cannot reach backend server. Please make sure the backend is running on ' +
-          (process.env.EXPO_PUBLIC_API_BASE_URL || 'https://api.hamzaammar.ca'));
+          process.env.EXPO_PUBLIC_SUPABASE_URL);
       }
 
-      const response = await apiClient.post('/api/piazza/connect-cookie', payload, {
-        timeout: 30000,
+      const response = await supabase.functions.invoke('study-logic', {
+        method: 'POST',
+        path: '/piazza/connect-cookie',
+        body: payload,
       });
-      if (response.status !== 200) {
-        throw new Error(response.data?.error || 'Failed to store cookies');
+      if (response.error) {
+        throw new Error(response.error.message || 'Failed to store cookies');
       }
       console.log('[Piazza] Cookies stored successfully');
     } catch (error: any) {

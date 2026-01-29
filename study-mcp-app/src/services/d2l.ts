@@ -1,4 +1,5 @@
 import { apiClient } from '../config/api';
+import { supabase } from './supabase';
 
 export interface D2LStatus {
   connected: boolean;
@@ -51,14 +52,16 @@ export class D2LService {
       const isHealthy = await this.checkBackendHealth();
       if (!isHealthy) {
         throw new Error('Cannot reach backend server. Please make sure the backend is running on ' +
-          (process.env.EXPO_PUBLIC_API_BASE_URL || 'https://api.hamzaammar.ca'));
+          process.env.EXPO_PUBLIC_SUPABASE_URL);
       }
 
-      const response = await apiClient.post('/api/d2l/token', credentials, {
-        timeout: 30000,
+      const response = await supabase.functions.invoke('study-logic', {
+        method: 'POST',
+        path: '/d2l/token',
+        body: credentials,
       });
-      if (response.status !== 200) {
-        throw new Error(response.data?.error || 'Failed to store token');
+      if (response.error) {
+        throw new Error(response.error.message || 'Failed to store token');
       }
       console.log('[D2L] Token stored successfully');
     } catch (error: any) {
@@ -87,14 +90,16 @@ export class D2LService {
       const isHealthy = await this.checkBackendHealth();
       if (!isHealthy) {
         throw new Error('Cannot reach backend server. Please make sure the backend is running on ' +
-          (process.env.EXPO_PUBLIC_API_BASE_URL || 'https://api.hamzaammar.ca'));
+          process.env.EXPO_PUBLIC_SUPABASE_URL);
       }
 
-      const response = await apiClient.post('/api/d2l/connect-cookie', payload, {
-        timeout: 30000,
+      const response = await supabase.functions.invoke('study-logic', {
+        method: 'POST',
+        path: '/d2l/connect-cookie',
+        body: payload,
       });
-      if (response.status !== 200) {
-        throw new Error(response.data?.error || 'Failed to store cookies');
+      if (response.error) {
+        throw new Error(response.error.message || 'Failed to store cookies');
       }
       console.log('[D2L] Cookies stored successfully');
     } catch (error: any) {
@@ -263,3 +268,31 @@ export class D2LService {
 }
 
 export const d2lService = new D2LService();
+
+export const connectD2LCookie = async (host: string, cookies: string) => {
+  const { data, error } = await supabase.functions.invoke('study-logic', {
+    body: { host, cookies },
+    headers: { 'Content-Type': 'application/json' },
+  });
+
+  if (error) {
+    console.error('Failed to connect D2L:', error);
+    throw error;
+  }
+
+  return data;
+};
+
+export const syncD2L = async () => {
+  const { data, error } = await supabase.functions.invoke('study-logic', {
+    method: 'POST',
+    path: '/d2l/sync',
+  });
+
+  if (error) {
+    console.error('Failed to sync D2L:', error);
+    throw error;
+  }
+
+  return data;
+};

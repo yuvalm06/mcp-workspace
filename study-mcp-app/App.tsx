@@ -3,9 +3,9 @@ import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 import AppNavigator from './src/navigation/AppNavigator';
-import { authService } from './src/services/auth';
 import { registerForPushNotifications, setupNotificationListeners, getLastNotificationResponse } from './src/services/push';
 import { useNavigation } from '@react-navigation/native';
+import { supabase } from './src/lib/supabase'; // Corrected import to match named export
 
 function AppContent() {
   const { isAuthenticated } = useAuth();
@@ -14,15 +14,13 @@ function AppContent() {
   const responseListener = useRef<any>(null);
 
   useEffect(() => {
-    // Register for push notifications when authenticated
-    if (isAuthenticated) {
+    if (isAuthenticated && supabase?.auth) {
       registerForPushNotifications().then((token) => {
         if (token) {
           console.log('[APP] Push notification token:', token);
         }
       });
 
-      // Set up notification listeners
       notificationListener.current = setupNotificationListeners(
         (notification) => {
           console.log('[APP] Notification received:', notification);
@@ -30,23 +28,18 @@ function AppContent() {
         (response) => {
           console.log('[APP] Notification tapped:', response);
           const data = response.notification.request.content.data;
-          
-          // Navigate based on notification type
           if (data?.type === 'announcement' && data?.courseId) {
             // Navigate to course detail
-            // Note: This requires navigation to be set up properly
           } else if (data?.type === 'assignment' && data?.courseId) {
             // Navigate to course detail
           }
         }
       );
 
-      // Check if app was opened from a notification
       getLastNotificationResponse().then((response) => {
         if (response) {
           console.log('[APP] App opened from notification:', response);
           const data = response.notification.request.content.data;
-          // Handle navigation if needed
         }
       });
     }
@@ -66,8 +59,11 @@ function AppContent() {
 
 export default function App() {
   useEffect(() => {
-    // Initialize auth on app start
-    authService.initialize();
+    supabase.auth.getSession().then((session) => {
+      if (session) {
+        console.log('[APP] Supabase session initialized:', session);
+      }
+    });
   }, []);
 
   return (

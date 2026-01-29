@@ -41,10 +41,14 @@ router.post("/notes/presign-upload", async (req: Request, res: Response) => {
 router.post("/notes/process", async (req: Request, res: Response) => {
   const userId = req.userId!;
   const { s3Key, courseId, title } = req.body || {};
-  if (!s3Key || typeof s3Key !== "string") {
-    res.status(400).json({ error: "s3Key required" });
+
+  // Validate input
+  if (!s3Key || !title) {
+    res.status(400).json({ error: "Invalid input: s3Key and title are required." });
     return;
   }
+
+  const noteTitle = title && typeof title === "string" ? title : "Untitled PDF";
   const prefix = `users/${userId}/`;
   if (!s3Key.startsWith(prefix)) {
     res.status(403).json({ error: "s3Key must be under your user path" });
@@ -56,7 +60,6 @@ router.post("/notes/process", async (req: Request, res: Response) => {
   }
 
   const course = courseId && typeof courseId === "string" ? courseId : "default";
-  const noteTitle = title && typeof title === "string" ? title : "Untitled PDF";
   const url = `s3://${getBucket()}/${s3Key}`;
   let noteId: string | null = null;
 
@@ -77,7 +80,6 @@ router.post("/notes/process", async (req: Request, res: Response) => {
 
     if (insertErr || !note || !note.id) {
       console.error("[API] note insert error:", insertErr);
-      console.error("[API] note insert error details:", JSON.stringify(insertErr, null, 2));
       res.status(500).json({ 
         error: "Failed to create note",
         details: insertErr?.message || "Unknown error",
@@ -91,7 +93,7 @@ router.post("/notes/process", async (req: Request, res: Response) => {
     // Step 2: Fetch PDF from S3 (file should exist since mobile app uploaded it first)
     console.error("[API] Fetching PDF from S3...");
     let buffer: Buffer | null = null;
-    let retries = 8; // up to ~8s total wait for S3 consistency / slow uploads
+    let retries = 12; // Increase retries to 12 (~12s total wait for S3 consistency)
     while (retries > 0 && !buffer) {
       buffer = await getObjectBuffer(s3Key);
       if (!buffer && retries > 1) {
@@ -105,17 +107,8 @@ router.post("/notes/process", async (req: Request, res: Response) => {
 
     if (!buffer) {
       console.error("[API] PDF buffer is null/undefined after retries");
-      // If we never see the file, treat this as a transient timing issue
-      // and clean up the note instead of leaving a permanent 'error' record.
-      try {
-        await supabase
-          .from("notes")
-          .delete()
-          .eq("id", note.id)
-          .eq("user_id", userId);
-      } catch (cleanupErr) {
-        console.error("[API] Failed to delete note after missing PDF:", cleanupErr);
-      }
+      // Mark the note as pending instead of deleting it
+      await supabase.from("notes").update({ status: "pending" }).eq("id", note.id).eq("user_id", userId);
       res.status(503).json({ 
         error: "PDF not yet available in storage", 
         suggestion: "The upload may not have fully finished. Please wait a few seconds and try again.",
@@ -267,13 +260,13 @@ router.delete("/notes/:id", async (req: Request, res: Response) => {
   const userId = req.userId!;
   const noteId = req.params.id;
 
-  if (!noteId || typeof noteId !== "string") {
-    res.status(400).json({ error: "noteId is required" });
+  if (!userId || !noteId || typeof noteId !== "string") {
+    res.status(400).json({ error: "Invalid input: userId and noteId are required." });
     return;
   }
 
   try {
-    console.error("[API] Deleting note and sections:", { userId, noteId });
+    console.info("[API] Deleting note and sections:", { userId, noteId });
 
     // First delete note_sections for this note/user
     const { error: sectionsError } = await supabase
@@ -284,7 +277,7 @@ router.delete("/notes/:id", async (req: Request, res: Response) => {
 
     if (sectionsError) {
       console.error("[API] notes delete - note_sections error:", sectionsError);
-      res.status(500).json({ error: "Failed to delete note sections" });
+      res.status(500).json({ error: "Failed to delete note sections", details: sectionsError.message });
       return;
     }
 
@@ -298,7 +291,7 @@ router.delete("/notes/:id", async (req: Request, res: Response) => {
 
     if (notesError) {
       console.error("[API] notes delete - notes error:", notesError);
-      res.status(500).json({ error: "Failed to delete note" });
+      res.status(500).json({ error: "Failed to delete note", details: notesError.message });
       return;
     }
 
@@ -310,7 +303,7 @@ router.delete("/notes/:id", async (req: Request, res: Response) => {
     res.json({ status: "deleted", noteId });
   } catch (e) {
     console.error("[API] notes delete error:", e);
-    res.status(500).json({ error: "Failed to delete note", details: e instanceof Error ? e.message : String(e) });
+    res.status(500).json({ error: "Unexpected error occurred while deleting note." });
   }
 });
 
@@ -486,12 +479,14 @@ router.post("/d2l/connect-cookie", async (req: Request, res: Response) => {
 
   try {
     // Store cookies in user_credentials table as the 'token'
+    // We'll use a dummy email since we're using cookies
     const { error } = await supabase
       .from("user_credentials")
       .upsert({
         user_id: userId,
         service: "d2l",
-        host: host,
+        email: `cookie-auth-${userId}@piazza.local`, // Dummy email for cookie-based auth
+        password: cookies, // Store cookies as password (legacy field, but we use token now)
         token: cookies, // Store cookies as the token string
         updated_at: new Date().toISOString(),
       }, {
@@ -1085,20 +1080,21 @@ router.post("/piazza/connect", async (req: Request, res: Response) => {
   const userId = req.userId!;
   const { email, password } = req.body || {};
 
-  if (!email || !password) {
-    res.status(400).json({ error: "email and password required" });
+  if (!userId || !email || !password) {
+    res.status(400).json({ error: "Invalid input: userId, email, and password are required." });
     return;
   }
 
   try {
-    // Store credentials in database
+    console.info("[API] Storing Piazza credentials:", { userId, email });
+
     const { error } = await supabase
       .from("user_credentials")
       .upsert({
         user_id: userId,
         service: "piazza",
-        email: email,
-        password: password, // TODO: Encrypt this in production
+        email,
+        password, // TODO: Encrypt this in production
         updated_at: new Date().toISOString(),
       }, {
         onConflict: "user_id,service"
@@ -1116,7 +1112,7 @@ router.post("/piazza/connect", async (req: Request, res: Response) => {
     });
   } catch (e) {
     console.error("[API] piazza/connect error:", e);
-    res.status(500).json({ error: "Failed to connect", details: e instanceof Error ? e.message : String(e) });
+    res.status(500).json({ error: "Unexpected error occurred while storing credentials." });
   }
 });
 

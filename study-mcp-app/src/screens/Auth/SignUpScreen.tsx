@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
 import { useNavigation } from '@react-navigation/native';
+import { authService } from '../../services/auth';
 
 export default function SignUpScreen() {
   const [name, setName] = useState('');
@@ -21,7 +22,7 @@ export default function SignUpScreen() {
   const navigation = useNavigation();
 
   const handleSignUp = async () => {
-    if (!name || !email || !password || !confirmPassword) {
+    if (!email || !password || !confirmPassword) {
       Alert.alert('Error', 'Please fill in all fields');
       return;
     }
@@ -31,24 +32,13 @@ export default function SignUpScreen() {
       return;
     }
 
-    if (password.length < 6) {
-      Alert.alert('Error', 'Password must be at least 6 characters');
-      return;
-    }
-
     setLoading(true);
     try {
-      await signUp(email, password, name);
-      // Navigation will be handled by the navigator based on auth state
+      await authService.handleSignUp(email, password);
+      Alert.alert('Success', 'Account created successfully!');
+      navigation.navigate('Login');
     } catch (error: any) {
-      // Check if error is about email verification needed
-      if (error.message?.includes('verify your account') || error.message?.includes('check your email')) {
-        // Navigate to verification screen
-        // @ts-ignore - navigation type will be fixed later
-        navigation.navigate('VerifyEmail', { email });
-      } else {
-        Alert.alert('Sign Up Failed', error.message || 'An error occurred');
-      }
+      Alert.alert('Sign Up Failed', error.message || 'An error occurred');
     } finally {
       setLoading(false);
     }

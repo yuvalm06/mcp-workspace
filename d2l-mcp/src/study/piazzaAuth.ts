@@ -216,7 +216,6 @@ export async function getPiazzaCookieHeader(userId?: string): Promise<string> {
       
       if (!error && data?.token) {
         const cookieHeader = data.token;
-        
         // Validate cookies before returning (check for session_id and test API call)
         if (cookieHeader.includes("session_id=")) {
           // Test cookie validity by making a lightweight API call
@@ -232,24 +231,42 @@ export async function getPiazzaCookieHeader(userId?: string): Promise<string> {
             });
 
             const responseText = await testResponse.text();
-            
             // If we get HTML, cookies are invalid
             if (responseText.trim().startsWith("<!DOCTYPE html") || responseText.trim().startsWith("<html")) {
-              console.error("[PIAZZA_AUTH] Stored cookies are invalid (got HTML response)");
-              // Don't throw here - fall through to browser auth or error
+              console.error("[PIAZZA_AUTH] Stored cookies are invalid (got HTML response), deleting from DB");
+              // Delete invalid cookies from DB
+              await supabase
+                .from("user_credentials")
+                .delete()
+                .eq("user_id", userId)
+                .eq("service", "piazza");
             } else if (testResponse.ok) {
               // Cookies are valid
               console.error("[PIAZZA_AUTH] Using validated cookies from database");
               return cookieHeader;
             } else {
-              console.error("[PIAZZA_AUTH] Cookie validation failed with status:", testResponse.status);
+              console.error("[PIAZZA_AUTH] Cookie validation failed with status:", testResponse.status, "Deleting from DB");
+              await supabase
+                .from("user_credentials")
+                .delete()
+                .eq("user_id", userId)
+                .eq("service", "piazza");
             }
           } catch (validationError) {
-            console.error("[PIAZZA_AUTH] Cookie validation error:", validationError);
-            // Fall through to browser auth or error
+            console.error("[PIAZZA_AUTH] Cookie validation error:", validationError, "Deleting from DB");
+            await supabase
+              .from("user_credentials")
+              .delete()
+              .eq("user_id", userId)
+              .eq("service", "piazza");
           }
         } else {
-          console.error("[PIAZZA_AUTH] Stored cookies missing session_id");
+          console.error("[PIAZZA_AUTH] Stored cookies missing session_id, deleting from DB");
+          await supabase
+            .from("user_credentials")
+            .delete()
+            .eq("user_id", userId)
+            .eq("service", "piazza");
         }
       }
     } catch (e) {

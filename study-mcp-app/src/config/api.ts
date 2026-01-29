@@ -1,51 +1,33 @@
-import axios from 'axios';
-import { authService } from '../services/auth';
+import { supabase } from '../services/supabase';
 
 // Get API URL from environment or use defaults
-// Default to production AWS backend
-const API_BASE_URL = 
-  process.env.EXPO_PUBLIC_API_BASE_URL || 'https://api.hamzaammar.ca';
+const API_BASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL;
 
 // Always log the API URL for debugging
 console.log('[API] Base URL:', API_BASE_URL);
 console.log('[API] __DEV__:', __DEV__);
-console.log('[API] EXPO_PUBLIC_API_BASE_URL:', process.env.EXPO_PUBLIC_API_BASE_URL || 'not set');
+console.log('[API] EXPO_PUBLIC_SUPABASE_URL:', process.env.EXPO_PUBLIC_SUPABASE_URL || 'not set');
 
-export const apiClient = axios.create({
-  baseURL: API_BASE_URL,
-  headers: {
-    'Content-Type': 'application/json',
+export const apiClient = {
+  get: async (path, options) => {
+    const { data, error } = await supabase.functions.invoke('study-logic', {
+      method: 'GET',
+      path,
+      ...options,
+    });
+    if (error) throw error;
+    return { data };
   },
-});
-
-// Add auth token to requests
-apiClient.interceptors.request.use(async (config) => {
-  const token = await authService.getToken();
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  console.log(`[API] ${config.method?.toUpperCase()} ${config.url}`, {
-    baseURL: config.baseURL,
-    hasToken: !!token,
-  });
-  return config;
-});
-
-// Handle auth errors
-apiClient.interceptors.response.use(
-  (response) => response,
-  async (error) => {
-    if (error.response?.status === 401) {
-      console.error('[API] 401 Unauthorized:', {
-        url: error.config?.url,
-        hasToken: !!error.config?.headers?.Authorization,
-        errorMessage: error.response?.data?.error || error.message,
-      });
-      // Don't auto-logout on 401 - might be a temporary issue
-      // Let the calling code handle it
-    }
-    return Promise.reject(error);
-  }
-);
+  post: async (path, body, options) => {
+    const { data, error } = await supabase.functions.invoke('study-logic', {
+      method: 'POST',
+      path,
+      body,
+      ...options,
+    });
+    if (error) throw error;
+    return { data };
+  },
+};
 
 export default apiClient;

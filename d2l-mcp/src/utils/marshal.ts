@@ -73,6 +73,19 @@ export function removeEmpty<T extends Record<string, unknown>>(obj: T): Partial<
   return result;
 }
 
+// Normalize date to ISO string
+export function normalizeDate(input: string | Date | null | undefined): string | null {
+  if (!input) return null;
+
+  const date = typeof input === 'string' ? new Date(input) : input;
+
+  if (isNaN(date.getTime())) {
+    throw new Error('Invalid date format');
+  }
+
+  return date.toISOString();
+}
+
 // ============= GRADES =============
 export interface RawGrade {
   PointsNumerator: number | null;

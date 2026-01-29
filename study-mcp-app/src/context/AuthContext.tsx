@@ -39,11 +39,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const login = async (email: string, password: string) => {
     try {
-      const { user: loggedInUser, token } = await authService.login(email, password);
-      await authService.setToken(token);
-      await authService.setUser(loggedInUser);
-      setUser(loggedInUser);
-      setIsAuthenticated(true);
+      const result = await authService.handleLogin(email, password);
+      if (result?.user) {
+        setUser(result.user);
+        setIsAuthenticated(true);
+      } else {
+        throw new Error('Login failed: No user data returned');
+      }
     } catch (error) {
       console.error('Login error:', error);
       throw error;

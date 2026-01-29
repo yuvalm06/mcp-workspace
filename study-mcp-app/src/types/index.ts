@@ -34,6 +34,30 @@ export interface Note {
   pageCount?: number;
   chunkCount?: number;
   status?: string;
+
+  normalizeDates(): void;
+}
+
+// Extend Note to include normalization logic
+export class NoteWithNormalization implements Note {
+  id: string = '';
+  title: string = '';
+  courseId?: string;
+  createdAt: string = '';
+  updatedAt: string = '';
+  pageCount?: number;
+  chunkCount?: number;
+  status?: string;
+
+  constructor(note: Note) {
+    Object.assign(this, note);
+    this.normalizeDates();
+  }
+
+  normalizeDates(): void {
+    this.createdAt = normalizeDate(this.createdAt) || this.createdAt;
+    this.updatedAt = normalizeDate(this.updatedAt) || this.updatedAt;
+  }
 }
 
 export interface SearchHit {
@@ -73,3 +97,6 @@ export interface AuthState {
   isAuthenticated: boolean;
   isLoading: boolean;
 }
+
+// Added normalizeDate utility for date handling
+import { normalizeDate } from '../../../d2l-mcp/src/utils/marshal';
