@@ -12,18 +12,9 @@ import { useNavigation } from '@react-navigation/native';
 import { AntDesign } from '@expo/vector-icons';
 import CookieManager from '@react-native-cookies/cookies';
 import { d2lService } from '../../services/d2l';
+import { supabase } from '../../lib/supabase';
 
-interface D2LWebViewScreenProps {
-  route: {
-    params: {
-      host: string;
-      username?: string;
-      password?: string;
-    };
-  };
-}
-
-export default function D2LWebViewScreen({ route }: D2LWebViewScreenProps) {
+export default function D2LWebViewScreen({ route }: any) {
   const { host, username, password } = route.params;
   const navigation = useNavigation();
   const webViewRef = useRef<WebView>(null);
@@ -37,22 +28,22 @@ export default function D2LWebViewScreen({ route }: D2LWebViewScreenProps) {
     // Check if we've navigated to the D2L home page (successful login)
     if (navState.url.includes('/d2l/home')) {
       console.log('[D2L WebView] Navigated to /d2l/home, capturing cookies...');
-      
+
       try {
         // Get all cookies for the current URL
         const cookies = await CookieManager.get(navState.url, true);
         console.log('[D2L WebView] Retrieved cookies:', Object.keys(cookies));
-        
+
         // Extract the two required cookies
         const d2lSessionVal = cookies.d2lSessionVal?.value;
         const d2lSecureSessionVal = cookies.d2lSecureSessionVal?.value;
-        
+
         if (d2lSessionVal && d2lSecureSessionVal) {
           // Format cookies as a cookie string
           const cookieString = `d2lSessionVal=${d2lSessionVal}; d2lSecureSessionVal=${d2lSecureSessionVal}`;
           console.log('[D2L WebView] Both required cookies found!');
           setCapturedCookies(cookieString);
-          
+
           // Automatically connect and navigate back
           if (!submitting) {
             setTimeout(() => handleSubmit(cookieString), 500);
@@ -72,7 +63,7 @@ export default function D2LWebViewScreen({ route }: D2LWebViewScreenProps) {
 
   const handleSubmit = async (cookieString?: string) => {
     const cookiesToUse = cookieString || capturedCookies;
-    
+
     if (!cookiesToUse) {
       Alert.alert('No Credentials', 'Please log in first.');
       return;
@@ -81,9 +72,22 @@ export default function D2LWebViewScreen({ route }: D2LWebViewScreenProps) {
     setSubmitting(true);
     try {
       await d2lService.connectWithCookies({ host, cookies: cookiesToUse });
-      
+
+      // Trigger Edge Function sync
+      const { data, error } = await supabase.functions.invoke('study-logic', {
+        body: { action: 'sync_d2l', host, cookies: cookiesToUse },
+      });
+
+      if (error) {
+        console.error('[D2L WebView] Edge Function error:', error);
+        Alert.alert('Error', 'Failed to trigger sync. Please try again.');
+        setSubmitting(false);
+        return;
+      }
+
+      console.log('[D2L WebView] Sync response:', data);
+
       // Automatically navigate back to dashboard on success
-      // No alert needed - smooth transition
       navigation.goBack();
     } catch (error: any) {
       Alert.alert('Error', error.message || 'Failed to connect');

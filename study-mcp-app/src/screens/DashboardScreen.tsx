@@ -15,7 +15,7 @@ import { AntDesign } from '@expo/vector-icons';
 import { dashboardService } from '../services/dashboard';
 import { DashboardResponse, Note } from '../types';
 import { useAuth } from '../context/AuthContext';
-import { supabase } from '../supabaseClient';
+
 
 export default function DashboardScreen() {
   const navigation = useNavigation();
@@ -23,7 +23,6 @@ export default function DashboardScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const { logout, user } = useAuth();
-  const [displayName, setDisplayName] = useState('User');
 
   const loadDashboard = async () => {
     try {
@@ -71,17 +70,6 @@ export default function DashboardScreen() {
     loadDashboard();
   };
 
-  useEffect(() => {
-    const fetchUser = async () => {
-      const user = await supabase.auth.getUser();
-      if (user.data.user) {
-        setDisplayName(user.data.user.user_metadata?.name || user.data.user.email);
-      }
-    };
-
-    fetchUser();
-  }, []);
-
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -100,97 +88,117 @@ export default function DashboardScreen() {
       >
         {/* Header with gradient effect */}
         <View style={styles.header}>
-        <View>
-          <Text style={styles.greeting}>Welcome back</Text>
-          <Text style={styles.userName}>{displayName}</Text>
-        </View>
-        <TouchableOpacity onPress={logout} style={styles.logoutButton}>
-          <AntDesign name="poweroff" size={16} color="#6366f1" style={{ marginRight: 6 }} />
-          <Text style={styles.logoutText}>Logout</Text>
-        </TouchableOpacity>
-      </View>
+          <View>
+            <Text style={styles.greeting}>Welcome back</Text>
+            <Text style={styles.userName}>
+              {(() => {
+                // Check if name exists and is not a UUID
+                const isUUID = (str: string | undefined): boolean => {
+                  if (!str) return false;
+                  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+                  return uuidRegex.test(str);
+                };
 
-      {/* Stats Cards */}
-      <View style={styles.statsContainer}>
-        <View style={[styles.statCard, styles.statCardPrimary]}>
-          <View style={styles.statIconContainer}>
-            <AntDesign name="book" size={24} color="#6366f1" />
-          </View>
-          <Text style={styles.statValue}>{dashboard?.stats.notesCount || 0}</Text>
-          <Text style={styles.statLabel}>Total Notes</Text>
-        </View>
-        <View style={[styles.statCard, styles.statCardSecondary]}>
-          <View style={styles.statIconContainer}>
-            <AntDesign name="file-text" size={24} color="#8b5cf6" />
-          </View>
-          <Text style={styles.statValue}>{dashboard?.usage.totalChunks || 0}</Text>
-          <Text style={styles.statLabel}>Chunks</Text>
-        </View>
-      </View>
+                if (user?.name && !isUUID(user.name)) {
+                  return user.name;
+                }
 
-      {/* My Courses Card */}
-      <View style={styles.section}>
-        <TouchableOpacity
-          style={styles.coursesCard}
-          onPress={() => navigation.navigate('Courses' as never)}
-          activeOpacity={0.7}
-        >
-          <View style={styles.coursesCardContent}>
-            <View style={styles.coursesIconContainer}>
-              <AntDesign name="book" size={28} color="#6366f1" />
+                // Fall back to formatted email
+                if (user?.email) {
+                  return user.email.split('@')[0].replace(/[._]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+                }
+
+                return 'User';
+              })()}
+            </Text>
+          </View>
+          <TouchableOpacity onPress={logout} style={styles.logoutButton}>
+            <AntDesign name="poweroff" size={16} color="#6366f1" style={{ marginRight: 6 }} />
+            <Text style={styles.logoutText}>Logout</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Stats Cards */}
+        <View style={styles.statsContainer}>
+          <View style={[styles.statCard, styles.statCardPrimary]}>
+            <View style={styles.statIconContainer}>
+              <AntDesign name="book" size={24} color="#6366f1" />
             </View>
-            <View style={styles.coursesTextContainer}>
-              <Text style={styles.coursesTitle}>My Courses</Text>
-              <Text style={styles.coursesSubtitle}>View your D2L courses and announcements</Text>
-            </View>
-            <AntDesign name="right" size={20} color="#94a3b8" />
+            <Text style={styles.statValue}>{dashboard?.stats.notesCount || 0}</Text>
+            <Text style={styles.statLabel}>Total Notes</Text>
           </View>
-        </TouchableOpacity>
-      </View>
+          <View style={[styles.statCard, styles.statCardSecondary]}>
+            <View style={styles.statIconContainer}>
+              <AntDesign name="file-text" size={24} color="#8b5cf6" />
+            </View>
+            <Text style={styles.statValue}>{dashboard?.usage.totalChunks || 0}</Text>
+            <Text style={styles.statLabel}>Chunks</Text>
+          </View>
+        </View>
 
-      {/* Recent Notes Section */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Recent Notes</Text>
-        {dashboard?.recentNotes && dashboard.recentNotes.length > 0 ? (
-          dashboard.recentNotes.map((note) => (
-            <TouchableOpacity key={note.id} style={styles.noteCard} activeOpacity={0.7}>
-              <View style={styles.noteCardHeader}>
-                <View style={styles.noteIcon}>
-                  <AntDesign name="file-text" size={20} color="#6366f1" />
+        {/* My Courses Card */}
+        <View style={styles.section}>
+          <TouchableOpacity
+            style={styles.coursesCard}
+            onPress={() => navigation.navigate('Courses' as never)}
+            activeOpacity={0.7}
+          >
+            <View style={styles.coursesCardContent}>
+              <View style={styles.coursesIconContainer}>
+                <AntDesign name="book" size={28} color="#6366f1" />
+              </View>
+              <View style={styles.coursesTextContainer}>
+                <Text style={styles.coursesTitle}>My Courses</Text>
+                <Text style={styles.coursesSubtitle}>View your D2L courses and announcements</Text>
+              </View>
+              <AntDesign name="right" size={20} color="#94a3b8" />
+            </View>
+          </TouchableOpacity>
+        </View>
+
+        {/* Recent Notes Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Recent Notes</Text>
+          {dashboard?.recentNotes && dashboard.recentNotes.length > 0 ? (
+            dashboard.recentNotes.map((note) => (
+              <TouchableOpacity key={note.id} style={styles.noteCard} activeOpacity={0.7}>
+                <View style={styles.noteCardHeader}>
+                  <View style={styles.noteIcon}>
+                    <AntDesign name="file-text" size={20} color="#6366f1" />
+                  </View>
+                  <View style={styles.noteContent}>
+                    <Text style={styles.noteTitle} numberOfLines={1}>{note.title}</Text>
+                    {(note.courseId || note.course_id) && (
+                      <View style={styles.courseBadge}>
+                        <Text style={styles.courseText}>{note.courseId || note.course_id}</Text>
+                      </View>
+                    )}
+                  </View>
                 </View>
-                <View style={styles.noteContent}>
-                  <Text style={styles.noteTitle} numberOfLines={1}>{note.title}</Text>
-                  {note.courseId && (
-                    <View style={styles.courseBadge}>
-                      <Text style={styles.courseText}>{note.courseId}</Text>
+                <View style={styles.noteFooter}>
+                  <Text style={styles.noteDate}>
+                    {new Date(note.createdAt || note.created_at || '').toLocaleDateString('en-US', {
+                      month: 'short',
+                      day: 'numeric',
+                      year: 'numeric'
+                    })}
+                  </Text>
+                  {note.status && (
+                    <View style={[styles.statusBadge, note.status === 'ready' && styles.statusReady]}>
+                      <Text style={styles.statusText}>{note.status}</Text>
                     </View>
                   )}
                 </View>
-              </View>
-              <View style={styles.noteFooter}>
-                <Text style={styles.noteDate}>
-                  {new Date(note.createdAt).toLocaleDateString('en-US', { 
-                    month: 'short', 
-                    day: 'numeric',
-                    year: 'numeric'
-                  })}
-                </Text>
-                {note.status && (
-                  <View style={[styles.statusBadge, note.status === 'ready' && styles.statusReady]}>
-                    <Text style={styles.statusText}>{note.status}</Text>
-                  </View>
-                )}
-              </View>
-            </TouchableOpacity>
-          ))
-        ) : (
-          <View style={styles.emptyState}>
-            <AntDesign name="mail" size={48} color="#94a3b8" />
-            <Text style={styles.emptyText}>No notes yet</Text>
-            <Text style={styles.emptySubtext}>Upload your first note to get started</Text>
-          </View>
-        )}
-      </View>
+              </TouchableOpacity>
+            ))
+          ) : (
+            <View style={styles.emptyState}>
+              <AntDesign name="mail" size={48} color="#94a3b8" />
+              <Text style={styles.emptyText}>No notes yet</Text>
+              <Text style={styles.emptySubtext}>Upload your first note to get started</Text>
+            </View>
+          )}
+        </View>
       </ScrollView>
     </SafeAreaView>
   );

@@ -1,8 +1,9 @@
 import { supabase } from '../lib/supabase';
+import { User } from '../types';
 
 export class AuthService {
   private static instance: AuthService;
-  private currentUser: any = null;
+  private currentUser: User | null = null;
 
   static getInstance(): AuthService {
     if (!AuthService.instance) {
@@ -11,43 +12,70 @@ export class AuthService {
     return AuthService.instance;
   }
 
-  async handleSignUp(email: string, password: string): Promise<void> {
-    if (!supabase?.auth) {
-      throw new Error('Supabase client is not initialized');
-    }
-    const { error } = await supabase.auth.signUp({ email, password });
-    if (error) {
-      throw new Error(error.message);
-    }
+  async isAuthenticated(): Promise<boolean> {
+    const { data: { session } } = await supabase.auth.getSession();
+    return !!session;
   }
 
-  async handleLogin(email: string, password: string): Promise<{ user: any; session: any } | null> {
-    if (!supabase?.auth) {
-      throw new Error('Supabase client is not initialized');
-    }
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) {
-      console.error('Login failed:', error);
-      throw new Error(error.message);
-    }
-    this.currentUser = data.user;
-    console.log('Login successful:', data);
-    return data; // Return user and session data
+  async getUser(): Promise<User | null> {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return null;
+
+    // Map Supabase user to our local User type
+    return {
+      id: user.id,
+      email: user.email || '',
+      name: user.user_metadata?.name || '',
+    };
   }
 
-  async listenToAuthChanges(): Promise<void> {
-    if (!supabase?.auth) {
-      console.warn('Supabase client is not initialized');
-      return;
-    }
-    supabase.auth.onAuthStateChange((event, session) => {
-      if (session) {
-        this.currentUser = session.user;
-        console.log('User logged in:', this.currentUser);
-      } else {
-        this.currentUser = null;
-        console.log('User logged out');
+  async handleSignUp(email: string, password: string, name?: string): Promise<{ user: any; session: any }> {
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: { name }
       }
+    });
+    if (error) throw new Error(error.message);
+    return data;
+  }
+
+  // Support for AuthContext's preferred naming
+  async signUp(email: string, password: string, name?: string) {
+    const result = await this.handleSignUp(email, password, name);
+    return {
+      user: result.user,
+      token: (result as any).session?.access_token
+    };
+  }
+
+  async handleLogin(email: string, password: string): Promise<{ user: any; session: any }> {
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) throw new Error(error.message);
+    this.currentUser = data.user ? {
+      id: data.user.id,
+      email: data.user.email || '',
+      name: data.user.user_metadata?.name || '',
+    } : null;
+    return data;
+  }
+
+  async logout(): Promise<void> {
+    const { error } = await supabase.auth.signOut();
+    if (error) throw new Error(error.message);
+    this.currentUser = null;
+  }
+
+  // Placeholders to satisfy AuthContext if it expects them
+  async setToken(token: string) { }
+  async setUser(user: any) {
+    this.currentUser = user;
+  }
+
+  async listenToAuthChanges(callback?: (session: any) => void): Promise<void> {
+    supabase.auth.onAuthStateChange((event, session) => {
+      if (callback) callback(session);
     });
   }
 }

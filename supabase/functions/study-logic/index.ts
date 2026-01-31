@@ -63,7 +63,7 @@ async function extractContent(data: ArrayBuffer, contentType: string): Promise<s
       // pdf-parse expects a Buffer-like object, which Deno's Uint8Array is.
       const pdfData = await pdf(new Uint8Array(data));
       return pdfData?.text || null;
-    } catch (error) {
+    } catch (error: any) {
       console.error(`[PDF] Error parsing PDF: ${error?.message || error}`);
       throw new Error("Failed to parse PDF file. It may be corrupted or encrypted.");
     }
@@ -75,7 +75,7 @@ async function extractContent(data: ArrayBuffer, contentType: string): Promise<s
       // Try mammoth.js, which works well in Deno.
       const result = await mammoth.extractRawText({ arrayBuffer: data });
       return result.value;
-    } catch (error) {
+    } catch (error: any) {
       console.error(`[DOCX] Error parsing DOCX: ${error?.message || error}`);
       throw new Error("Failed to parse DOCX file.");
     }
@@ -157,7 +157,7 @@ async function embedNoteSections(supabase: SupabaseClient, userId: string, noteI
           .eq("id", section.id);
         count++;
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error(`Failed to embed section ${section.id}:`, e);
     }
   }
@@ -408,7 +408,7 @@ const router = Router();
 
 // --- Middleware: Auth & Supabase Client ---
 // This middleware will run for all routes.
-router.all("*", async (req: IRequest, env, ctx) => {
+router.all("*", async (req: IRequest) => {
   // 1. Handle CORS preflight requests
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -439,10 +439,33 @@ router.all("*", async (req: IRequest, env, ctx) => {
 // Porting routes from d2l-mcp/src/api/routes.ts
 
 /**
+ * POST /
+ * Action-based dispatcher for compatibility with app requests.
+ */
+router.post("/", async (req: any) => {
+  const body = await req.json();
+  const { action } = body;
+
+  if (action === "sync_d2l") {
+    // Redirect to the actual sync handler or just call it
+    // For now, let's handle it here
+    return await router.handle({ ...req, method: 'POST', url: new URL('/d2l/sync', req.url).toString(), json: () => body })
+  }
+
+  if (action === "process_note") {
+    // Manually handle it since internal redirect with itty-router is tricky with bodies
+    // Or just re-route
+    return await router.handle({ ...req, method: 'POST', url: new URL('/notes/process', req.url).toString(), json: () => body })
+  }
+
+  return new Response(JSON.stringify({ error: "Action not supported" }), { status: 400 });
+});
+
+/**
  * GET /dashboard
  * Fetches dashboard data: recent notes, usage, and stats.
  */
-router.get("/dashboard", async (req) => {
+router.get("/dashboard", async (req: any) => {
   const { supabase, user } = req;
 
   const [notesRes, sectionsRes, notesCountRes] = await Promise.all([
@@ -477,7 +500,7 @@ router.get("/dashboard", async (req) => {
  * GET /notes
  * List all notes for the user.
  */
-router.get("/notes", async (req) => {
+router.get("/notes", async (req: any) => {
   const { supabase, user } = req;
   const courseId = new URL(req.url).searchParams.get("courseId");
 
@@ -507,7 +530,7 @@ router.get("/notes", async (req) => {
  * DELETE /notes/:id
  * Delete a note and its sections.
  */
-router.delete("/notes/:id", async (req) => {
+router.delete("/notes/:id", async (req: any) => {
   const { supabase, user } = req;
   const { id } = req.params;
 
@@ -533,7 +556,7 @@ router.delete("/notes/:id", async (req) => {
  * GET /search
  * Semantic search over notes.
  */
-router.get("/search", async (req) => {
+router.get("/search", async (req: any) => {
   const { supabase, user } = req;
   const url = new URL(req.url);
   const q = url.searchParams.get("q")?.trim();
@@ -549,7 +572,7 @@ router.get("/search", async (req) => {
 
   try {
     const queryEmbedding = await generateEmbedding(q);
-    
+
     // Call the Supabase RPC function for vector similarity search
     const { data: sections, error } = await supabase.rpc("match_note_sections", {
       query_embedding: queryEmbedding,
@@ -571,7 +594,7 @@ router.get("/search", async (req) => {
     return new Response(JSON.stringify({ hits }), {
       headers: { "Content-Type": "application/json", ...corsHeaders },
     });
-  } catch (e) {
+  } catch (e: any) {
     console.error("[API] search error:", e);
     return new Response(JSON.stringify({ error: "Search failed", details: e.message }), {
       status: 500,
@@ -584,9 +607,9 @@ router.get("/search", async (req) => {
  * POST /notes/embed-missing
  * Triggers embedding generation for notes that are missing them.
  */
-router.post("/notes/embed-missing", async (req) => {
+router.post("/notes/embed-missing", async (req: any) => {
   const { supabase, user } = req;
-  
+
   // Find notes with sections that have null embeddings
   // This is a simplified approach; usually you'd query note_sections directly
   const { data: sections } = await supabase
@@ -620,7 +643,7 @@ router.post("/notes/embed-missing", async (req) => {
  * Generates a signed URL for the client to upload a file to Supabase Storage.
  * Replaces the S3 presigned URL logic.
  */
-router.post("/notes/presign-upload", async (req) => {
+router.post("/notes/presign-upload", async (req: any) => {
   const { user } = req;
   const { filename, contentType, size } = (await req.json()) as PresignUploadRequestBody;
   const bucket = "notes"; // Or get from env var
@@ -648,7 +671,7 @@ router.post("/notes/presign-upload", async (req) => {
     return new Response(JSON.stringify({ uploadUrl: data.signedUrl, path: data.path }), {
       headers: { "Content-Type": "application/json", ...corsHeaders },
     });
-  } catch (e) {
+  } catch (e: any) {
     console.error("[API] presign-upload error:", e);
     return new Response(JSON.stringify({ error: "Failed to generate signed upload URL" }), {
       status: 500,
@@ -661,7 +684,7 @@ router.post("/notes/presign-upload", async (req) => {
  * POST /notes/process
  * Processes a file already uploaded to Supabase Storage.
  */
-router.post("/notes/process", async (req) => {
+router.post("/notes/process", async (req: any) => {
   const { supabase, user } = req;
   const { storagePath, title, courseId } = (await req.json()) as ProcessNoteRequestBody;
   const bucket = "notes"; // Or get from env var
@@ -749,7 +772,7 @@ router.post("/notes/process", async (req) => {
       }),
       { headers: { "Content-Type": "application/json", ...corsHeaders } }
     );
-  } catch (e) {
+  } catch (e: any) {
     console.error(`[API] /notes/process error for note ${noteId}:`, e);
     // If anything fails, update the note status to 'error'
     await supabase
@@ -772,7 +795,7 @@ router.post("/notes/process", async (req) => {
  * POST /d2l/connect-cookie
  * Stores D2L cookies from a WebView login.
  */
-router.post("/d2l/connect-cookie", async (req) => {
+router.post("/d2l/connect-cookie", async (req: any) => {
   const { user } = req;
   const { host, cookies } = await req.json();
 
@@ -787,7 +810,7 @@ router.post("/d2l/connect-cookie", async (req) => {
   try {
     // Using a standard D2L API endpoint to verify access
     await fetchD2L(host, "/d2l/api/lp/1.30/enrollments/myenrollments/", cookies);
-  } catch (e) {
+  } catch (e: any) {
     return new Response(JSON.stringify({ error: "Invalid or expired cookies", details: e.message }), {
       status: 400,
       headers: { "Content-Type": "application/json", ...corsHeaders },
@@ -821,10 +844,10 @@ router.post("/d2l/connect-cookie", async (req) => {
  * GET /d2l/status
  * Checks D2L connection status.
  */
-router.get("/d2l/status", async (req) => {
+router.get("/d2l/status", async (req: any) => {
   const { supabase, user } = req;
   const creds = await getD2LCredentials(supabase, user.id);
-  
+
   const connected = !!creds?.token;
   let reauthRequired = false;
 
@@ -843,7 +866,7 @@ router.get("/d2l/status", async (req) => {
  * DELETE /d2l/disconnect
  * Remove D2L credentials.
  */
-router.delete("/d2l/disconnect", async (req) => {
+router.delete("/d2l/disconnect", async (req: any) => {
   const { user } = req;
   const { error } = await supabaseAdmin
     .from("user_credentials")
@@ -864,7 +887,7 @@ router.delete("/d2l/disconnect", async (req) => {
  * GET /d2l/courses
  * Fetches enrolled courses from D2L.
  */
-router.get("/d2l/courses", async (req) => {
+router.get("/d2l/courses", async (req: any) => {
   const { supabase, user } = req;
   const creds = await getD2LCredentials(supabase, user.id);
 
@@ -877,7 +900,7 @@ router.get("/d2l/courses", async (req) => {
 
   try {
     const data = await fetchD2L(creds.host, "/d2l/api/lp/1.30/enrollments/myenrollments/", creds.token);
-    
+
     // Transform to simplified format
     const courses = (data.Items || [])
       .filter((e: any) => e.OrgUnit?.Type?.Code === "Course Offering" && e.Access?.IsActive)
@@ -890,7 +913,7 @@ router.get("/d2l/courses", async (req) => {
     return new Response(JSON.stringify({ courses }), {
       headers: { "Content-Type": "application/json", ...corsHeaders },
     });
-  } catch (e) {
+  } catch (e: any) {
     const status = e.message === "REAUTH_REQUIRED" ? 401 : 500;
     return new Response(JSON.stringify({ error: e.message }), {
       status,
@@ -902,7 +925,7 @@ router.get("/d2l/courses", async (req) => {
 /**
  * GET /d2l/courses/:courseId/announcements
  */
-router.get("/d2l/courses/:courseId/announcements", async (req) => {
+router.get("/d2l/courses/:courseId/announcements", async (req: any) => {
   const { supabase, user } = req;
   const { courseId } = req.params;
   const creds = await getD2LCredentials(supabase, user.id);
@@ -914,7 +937,7 @@ router.get("/d2l/courses/:courseId/announcements", async (req) => {
     return new Response(JSON.stringify({ announcements: marshalAnnouncements(news) }), {
       headers: { "Content-Type": "application/json", ...corsHeaders },
     });
-  } catch (e) {
+  } catch (e: any) {
     return new Response(JSON.stringify({ error: e.message }), {
       status: e.message === "REAUTH_REQUIRED" ? 401 : 500,
       headers: { "Content-Type": "application/json", ...corsHeaders },
@@ -925,7 +948,7 @@ router.get("/d2l/courses/:courseId/announcements", async (req) => {
 /**
  * GET /d2l/courses/:courseId/assignments
  */
-router.get("/d2l/courses/:courseId/assignments", async (req) => {
+router.get("/d2l/courses/:courseId/assignments", async (req: any) => {
   const { supabase, user } = req;
   const { courseId } = req.params;
   const creds = await getD2LCredentials(supabase, user.id);
@@ -944,7 +967,7 @@ router.get("/d2l/courses/:courseId/assignments", async (req) => {
     }), {
       headers: { "Content-Type": "application/json", ...corsHeaders },
     });
-  } catch (e) {
+  } catch (e: any) {
     return new Response(JSON.stringify({ error: e.message }), {
       status: e.message === "REAUTH_REQUIRED" ? 401 : 500,
       headers: { "Content-Type": "application/json", ...corsHeaders },
@@ -955,7 +978,7 @@ router.get("/d2l/courses/:courseId/assignments", async (req) => {
 /**
  * GET /d2l/courses/:courseId/grades
  */
-router.get("/d2l/courses/:courseId/grades", async (req) => {
+router.get("/d2l/courses/:courseId/grades", async (req: any) => {
   const { supabase, user } = req;
   const { courseId } = req.params;
   const creds = await getD2LCredentials(supabase, user.id);
@@ -967,7 +990,7 @@ router.get("/d2l/courses/:courseId/grades", async (req) => {
     return new Response(JSON.stringify({ grades: marshalGrades(grades) }), {
       headers: { "Content-Type": "application/json", ...corsHeaders },
     });
-  } catch (e) {
+  } catch (e: any) {
     return new Response(JSON.stringify({ error: e.message }), {
       status: e.message === "REAUTH_REQUIRED" ? 401 : 500,
       headers: { "Content-Type": "application/json", ...corsHeaders },
@@ -979,7 +1002,7 @@ router.get("/d2l/courses/:courseId/grades", async (req) => {
  * POST /d2l/sync
  * Syncs D2L content (PDF/DOCX) for the user.
  */
-router.post("/d2l/sync", async (req) => {
+router.post("/d2l/sync", async (req: any) => {
   const { supabase, user } = req;
 
   try {
@@ -1005,7 +1028,7 @@ router.post("/d2l/sync", async (req) => {
       status: 200,
       headers: { "Content-Type": "application/json", ...corsHeaders },
     });
-  } catch (error) {
+  } catch (error: any) {
     return new Response(JSON.stringify({ error: error.message }), {
       status: 500,
       headers: { "Content-Type": "application/json", ...corsHeaders },
@@ -1017,7 +1040,7 @@ router.post("/d2l/sync", async (req) => {
  * POST /piazza/connect-cookie
  * Stores Piazza cookies from a WebView login.
  */
-router.post("/piazza/connect-cookie", async (req) => {
+router.post("/piazza/connect-cookie", async (req: any) => {
   const { user } = req;
   const { cookies } = await req.json();
 
@@ -1036,7 +1059,7 @@ router.post("/piazza/connect-cookie", async (req) => {
       body: JSON.stringify({ method: "network.get_my_feed", params: { limit: 1 } }),
     });
     if (!res.ok) throw new Error("Piazza API check failed");
-  } catch (error) {
+  } catch (error: any) {
     return new Response(JSON.stringify({ error: "Invalid or expired cookies.", details: error.message }), {
       status: 400,
       headers: { "Content-Type": "application/json", ...corsHeaders },
@@ -1068,7 +1091,7 @@ router.post("/piazza/connect-cookie", async (req) => {
 /**
  * DELETE /piazza/disconnect
  */
-router.delete("/piazza/disconnect", async (req) => {
+router.delete("/piazza/disconnect", async (req: any) => {
   const { user } = req;
   const { error } = await supabaseAdmin
     .from("user_credentials")
@@ -1089,7 +1112,7 @@ router.delete("/piazza/disconnect", async (req) => {
  * POST /piazza/sync
  * Syncs Piazza posts for the user.
  */
-router.post("/piazza/sync", async (req) => {
+router.post("/piazza/sync", async (req: any) => {
   const { supabase, user } = req;
   const body: PiazzaSyncRequestBody = await req.json();
 
@@ -1159,7 +1182,7 @@ router.post("/piazza/sync", async (req) => {
       headers: { "Content-Type": "application/json", ...corsHeaders },
     });
 
-  } catch (e) {
+  } catch (e: any) {
     return new Response(JSON.stringify({ success: false, error: e.message }), {
       status: e.message.includes("authentication") || e.message.includes("expired") ? 401 : 500,
       headers: { "Content-Type": "application/json", ...corsHeaders },
@@ -1171,9 +1194,9 @@ router.post("/piazza/sync", async (req) => {
  * GET /piazza/status
  * Checks Piazza connection status.
  */
-router.get("/piazza/status", async (req) => {
+router.get("/piazza/status", async (req: any) => {
   const { supabase, user } = req;
-  
+
   const { data } = await supabaseAdmin
     .from("user_credentials")
     .select("token, updated_at")
@@ -1182,7 +1205,7 @@ router.get("/piazza/status", async (req) => {
     .single();
 
   const connected = !!data?.token;
-  
+
   // Get classes count from DB
   const { count } = await supabase
     .from("piazza_posts")
@@ -1198,7 +1221,7 @@ router.get("/piazza/status", async (req) => {
  * POST /push/register
  * Register device token for push notifications.
  */
-router.post("/push/register", async (req) => {
+router.post("/push/register", async (req: any) => {
   const { supabase, user } = req;
   const { deviceToken, platform } = await req.json();
 
@@ -1226,7 +1249,7 @@ router.post("/push/register", async (req) => {
  * POST /push/sync
  * Checks for D2L updates (Announcements/Assignments) and sends push notifications.
  */
-router.post("/push/sync", async (req) => {
+router.post("/push/sync", async (req: any) => {
   const { supabase, user } = req;
   const creds = await getD2LCredentials(supabase, user.id);
 
@@ -1244,7 +1267,7 @@ router.post("/push/sync", async (req) => {
       .eq("user_id", user.id)
       .eq("source", "learn")
       .single();
-    
+
     const lastSync = syncState?.last_sync_at ? new Date(syncState.last_sync_at).getTime() : Date.now() - 86400000;
     let updatesFound = 0;
 
@@ -1256,7 +1279,7 @@ router.post("/push/sync", async (req) => {
       // Check News
       const news = await fetchD2L(creds.host, `/d2l/api/le/1.67/news/${courseId}/`, creds.token);
       const newItems = news.filter((n: any) => new Date(n.StartDate).getTime() > lastSync);
-      
+
       for (const item of newItems.slice(0, 3)) {
         await sendPushToUser(supabase, user.id, `New Announcement in ${courseName}`, item.Title);
         updatesFound++;
@@ -1269,7 +1292,7 @@ router.post("/push/sync", async (req) => {
     return new Response(JSON.stringify({ status: "completed", updates: updatesFound }), {
       headers: { "Content-Type": "application/json", ...corsHeaders },
     });
-  } catch (e) {
+  } catch (e: any) {
     return new Response(JSON.stringify({ error: e.message }), { status: 500 });
   }
 });
@@ -1280,8 +1303,28 @@ router.all("*", () => new Response("Not Found", { status: 404 }));
 // --- Deno Server ---
 Deno.serve(async (req) => {
   try {
+    // Extract virtual path from header if present (used by apiClient.ts)
+    const xPath = req.headers.get("x-path") || req.headers.get("X-Path");
+    if (xPath) {
+      const url = new URL(req.url);
+      url.pathname = xPath.startsWith("/") ? xPath : `/${xPath}`;
+      // Note: We can't mutate req.url directly, but itty-router accepts an object with url property
+      return await router.handle({
+        ...req,
+        url: url.toString(),
+        // Ensure standard methods are preserved
+        method: req.method,
+        headers: req.headers,
+        json: () => req.json(),
+        formData: () => req.formData(),
+        blob: () => req.blob(),
+        text: () => req.text(),
+        arrayBuffer: () => req.arrayBuffer(),
+      });
+    }
+
     return await router.handle(req);
-  } catch (e) {
+  } catch (e: any) {
     return new Response(JSON.stringify({ error: "Internal Server Error", details: e.message }), {
       status: 500,
       headers: { "Content-Type": "application/json", ...corsHeaders },

@@ -108,7 +108,7 @@ export default function UploadScreen() {
     setError(null);
     setUploading(true);
     setUploadProgress(0);
-    
+
     try {
       // Step 1: Get presigned URL
       setUploadProgress(10);
@@ -134,9 +134,9 @@ export default function UploadScreen() {
       // Step 3: Process the note
       setUploadProgress(80);
       const processResponse = await notesService.processNote({
-        s3Key: presignResponse.s3Key,
+        storagePath: presignResponse.path,
         courseId: courseId || undefined,
-        title: title || undefined,
+        title: title || asset.name.replace('.pdf', ''),
       });
 
       setUploadProgress(100);
@@ -165,21 +165,21 @@ export default function UploadScreen() {
       console.error('Upload error:', error);
       console.error('Upload error response:', error.response?.data);
       console.error('Upload error status:', error.response?.status);
-      
+
       // Get detailed error message
-      const errorMessage = error.response?.data?.error || 
-                          error.response?.data?.details || 
-                          error.response?.data?.message ||
-                          error.message || 
-                          'An error occurred during upload';
-      
+      const errorMessage = error.response?.data?.error ||
+        error.response?.data?.details ||
+        error.response?.data?.message ||
+        error.message ||
+        'An error occurred during upload';
+
       // Include status code if available
-      const fullErrorMessage = error.response?.status 
+      const fullErrorMessage = error.response?.status
         ? `[${error.response.status}] ${errorMessage}`
         : errorMessage;
-      
+
       setError(fullErrorMessage);
-      
+
       // Retry logic (max 2 retries)
       if (retryCount < 2) {
         Alert.alert(
@@ -210,8 +210,8 @@ export default function UploadScreen() {
 
       <View style={styles.section}>
         <Text style={styles.label}>File</Text>
-        <TouchableOpacity 
-          style={styles.fileButton} 
+        <TouchableOpacity
+          style={styles.fileButton}
           onPress={() => {
             try {
               pickDocument();
@@ -219,21 +219,21 @@ export default function UploadScreen() {
               console.error('Error in pickDocument:', error);
               Alert.alert('Error', error?.message || 'Failed to open document picker');
             }
-          }} 
+          }}
           disabled={uploading || processing}
         >
-          <AntDesign 
-            name={file && !file.canceled && file.assets && file.assets[0] ? "file-text" : "cloud-upload"} 
-            size={24} 
-            color="#6366f1" 
-            style={{ marginBottom: 8 }} 
+          <AntDesign
+            name={file && !file.canceled && file.assets && file.assets[0] ? "file-text" : "cloud-upload"}
+            size={24}
+            color="#6366f1"
+            style={{ marginBottom: 8 }}
           />
           <Text style={styles.fileButtonText}>
             {file && !file.canceled && file.assets && file.assets[0]
               ? file.assets[0].name
               : 'Select PDF File'}
           </Text>
-          {file && !file.canceled && file.assets && file.assets[0] && (
+          {file && !file.canceled && file.assets && file.assets[0] && file.assets[0].size !== undefined && (
             <Text style={styles.fileSize}>
               {(file.assets[0].size / 1024 / 1024).toFixed(2)} MB
             </Text>

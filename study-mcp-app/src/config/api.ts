@@ -9,24 +9,39 @@ console.log('[API] __DEV__:', __DEV__);
 console.log('[API] EXPO_PUBLIC_SUPABASE_URL:', process.env.EXPO_PUBLIC_SUPABASE_URL || 'not set');
 
 export const apiClient = {
-  get: async (path, options) => {
+  get: async <T = any>(path: string, options = {}) => {
     const { data, error } = await supabase.functions.invoke('study-logic', {
       method: 'GET',
-      path,
+      headers: {
+        'x-path': path,
+      },
       ...options,
     });
     if (error) throw error;
-    return { data };
+    return { data: data as T };
   },
-  post: async (path, body, options) => {
+  post: async <T = any>(path: string, body?: any, options = {}) => {
     const { data, error } = await supabase.functions.invoke('study-logic', {
       method: 'POST',
-      path,
+      headers: {
+        'x-path': path,
+      },
       body,
       ...options,
     });
     if (error) throw error;
-    return { data };
+    return { data: data as T };
+  },
+  delete: async <T = any>(path: string, options = {}) => {
+    const { data, error } = await supabase.functions.invoke('study-logic', {
+      method: 'DELETE',
+      headers: {
+        'x-path': path,
+      },
+      ...options,
+    });
+    if (error) throw error;
+    return { data: data as T };
   },
 };
 

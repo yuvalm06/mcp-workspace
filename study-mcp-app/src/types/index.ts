@@ -8,13 +8,13 @@ export interface PresignUploadRequest {
 
 export interface PresignUploadResponse {
   uploadUrl: string;
-  s3Key: string;
+  path: string; // Changed from s3Key to path for Supabase
 }
 
 export interface ProcessNoteRequest {
-  s3Key: string;
+  storagePath: string;
+  title: string;
   courseId?: string;
-  title?: string;
 }
 
 export interface ProcessNoteResponse {
@@ -29,35 +29,15 @@ export interface Note {
   id: string;
   title: string;
   courseId?: string;
+  course_id?: string; // Support for snake_case from DB
   createdAt: string;
+  created_at?: string; // Support for snake_case from DB
   updatedAt: string;
+  updated_at?: string; // Support for snake_case from DB
   pageCount?: number;
+  page_count?: number; // Support for snake_case from DB
   chunkCount?: number;
   status?: string;
-
-  normalizeDates(): void;
-}
-
-// Extend Note to include normalization logic
-export class NoteWithNormalization implements Note {
-  id: string = '';
-  title: string = '';
-  courseId?: string;
-  createdAt: string = '';
-  updatedAt: string = '';
-  pageCount?: number;
-  chunkCount?: number;
-  status?: string;
-
-  constructor(note: Note) {
-    Object.assign(this, note);
-    this.normalizeDates();
-  }
-
-  normalizeDates(): void {
-    this.createdAt = normalizeDate(this.createdAt) || this.createdAt;
-    this.updatedAt = normalizeDate(this.updatedAt) || this.updatedAt;
-  }
 }
 
 export interface SearchHit {
@@ -98,5 +78,13 @@ export interface AuthState {
   isLoading: boolean;
 }
 
-// Added normalizeDate utility for date handling
-import { normalizeDate } from '../../../d2l-mcp/src/utils/marshal';
+// Simple internal normalizeDate since the external import was broken
+export function normalizeDate(dateStr: string | null | undefined): string {
+  if (!dateStr) return '';
+  try {
+    const date = new Date(dateStr);
+    return date.toISOString();
+  } catch (e) {
+    return dateStr;
+  }
+}

@@ -40,79 +40,57 @@ export default function CourseDetailScreen() {
   const [gradesError, setGradesError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'announcements' | 'grades' | 'content'>('announcements');
 
-  useEffect(() => {
-    if (course) {
-      loadAnnouncements();
-      if (activeTab === 'grades') {
-        loadGrades();
-      }
-    }
-  }, [course]);
-
-  useEffect(() => {
-    if (activeTab === 'grades' && course && grades.length === 0 && !gradesLoading) {
-      loadGrades();
-    }
-  }, [activeTab]);
-
-  const loadAnnouncements = async () => {
+  // --- Implementation for missing handlers ---
+  async function loadAnnouncements() {
     if (!course) return;
-    
+    setLoading(true);
+    setError(null);
     try {
-      setError(null);
       const data = await d2lService.getAnnouncements(course.id);
-      // Sort by date, most recent first
-      const sorted = data.sort((a: Announcement, b: Announcement) => {
-        if (!a.date) return 1;
-        if (!b.date) return -1;
-        return new Date(b.date).getTime() - new Date(a.date).getTime();
-      });
-      setAnnouncements(sorted);
+      setAnnouncements(data);
     } catch (err: any) {
-      console.error('Error loading announcements:', err);
       setError(err.message || 'Failed to load announcements');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  };
+  }
 
-  const loadGrades = async () => {
+  async function loadGrades() {
     if (!course) return;
-    
+    setGradesLoading(true);
+    setGradesError(null);
     try {
-      setGradesError(null);
-      setGradesLoading(true);
       const data = await d2lService.getGrades(course.id);
       setGrades(data);
     } catch (err: any) {
-      console.error('Error loading grades:', err);
       setGradesError(err.message || 'Failed to load grades');
     } finally {
       setGradesLoading(false);
+      setRefreshing(false);
     }
-  };
+  }
 
-  const onRefresh = () => {
+  function onRefresh() {
     setRefreshing(true);
     if (activeTab === 'announcements') {
       loadAnnouncements();
     } else if (activeTab === 'grades') {
       loadGrades();
     }
-  };
+  }
 
-  const formatDate = (dateString: string | null) => {
-    if (!dateString) return 'No date';
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-    });
-  };
+  function formatDate(date: string | null | undefined): string {
+    if (!date) return '';
+    const d = new Date(date);
+    return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+  }
+
+  useEffect(() => {
+    if (course) {
+      loadAnnouncements();
+    }
+  }, [course]);
 
   if (!course) {
     return (
@@ -140,22 +118,19 @@ export default function CourseDetailScreen() {
           </View>
           <View style={styles.courseInfo}>
             <Text style={styles.courseName}>{course.name}</Text>
-            {course.code && (
-              <Text style={styles.courseCode}>{course.code}</Text>
-            )}
+            <Text style={styles.courseCode}>{course.code}</Text>
           </View>
         </View>
       </View>
-
       <View style={styles.tabs}>
         <TouchableOpacity
           style={[styles.tab, activeTab === 'announcements' && styles.activeTab]}
           onPress={() => setActiveTab('announcements')}
         >
-          <AntDesign 
-            name="notification" 
-            size={18} 
-            color={activeTab === 'announcements' ? '#6366f1' : '#94a3b8'} 
+          <AntDesign
+            name="notification"
+            size={18}
+            color={activeTab === 'announcements' ? '#6366f1' : '#94a3b8'}
           />
           <Text style={[styles.tabText, activeTab === 'announcements' && styles.activeTabText]}>
             Announcements
@@ -165,10 +140,10 @@ export default function CourseDetailScreen() {
           style={[styles.tab, activeTab === 'grades' && styles.activeTab]}
           onPress={() => setActiveTab('grades')}
         >
-          <AntDesign 
-            name="staro" 
-            size={18} 
-            color={activeTab === 'grades' ? '#6366f1' : '#94a3b8'} 
+          <AntDesign
+            name="staro"
+            size={18}
+            color={activeTab === 'grades' ? '#6366f1' : '#94a3b8'}
           />
           <Text style={[styles.tabText, activeTab === 'grades' && styles.activeTabText]}>
             Grades
@@ -178,17 +153,16 @@ export default function CourseDetailScreen() {
           style={[styles.tab, activeTab === 'content' && styles.activeTab]}
           onPress={() => setActiveTab('content')}
         >
-          <AntDesign 
-            name="filetext" 
-            size={18} 
-            color={activeTab === 'content' ? '#6366f1' : '#94a3b8'} 
+          <AntDesign
+            name="filetext"
+            size={18}
+            color={activeTab === 'content' ? '#6366f1' : '#94a3b8'}
           />
           <Text style={[styles.tabText, activeTab === 'content' && styles.activeTabText]}>
             Content
           </Text>
         </TouchableOpacity>
       </View>
-
       {activeTab === 'announcements' && (
         <ScrollView
           style={styles.content}
@@ -205,7 +179,6 @@ export default function CourseDetailScreen() {
               </TouchableOpacity>
             </View>
           )}
-
           {!error && announcements.length === 0 && (
             <View style={styles.emptyContainer}>
               <AntDesign name="notification" size={48} color="#94a3b8" />
@@ -215,7 +188,6 @@ export default function CourseDetailScreen() {
               </Text>
             </View>
           )}
-
           {!error && announcements.map((announcement) => (
             <View key={announcement.id} style={styles.announcementCard}>
               <View style={styles.announcementHeader}>
@@ -246,7 +218,6 @@ export default function CourseDetailScreen() {
           ))}
         </ScrollView>
       )}
-
       {activeTab === 'grades' && (
         <ScrollView
           style={styles.content}
@@ -260,7 +231,6 @@ export default function CourseDetailScreen() {
               <Text style={styles.loadingText}>Loading grades...</Text>
             </View>
           )}
-
           {!gradesLoading && gradesError && (
             <View style={styles.errorContainer}>
               <AntDesign name="exclamationcircleo" size={32} color="#ef4444" />
@@ -270,7 +240,6 @@ export default function CourseDetailScreen() {
               </TouchableOpacity>
             </View>
           )}
-
           {!gradesLoading && !gradesError && grades.length === 0 && (
             <View style={styles.emptyContainer}>
               <AntDesign name="staro" size={48} color="#94a3b8" />
@@ -280,7 +249,6 @@ export default function CourseDetailScreen() {
               </Text>
             </View>
           )}
-
           {!gradesLoading && !gradesError && grades.map((grade, index) => (
             <View key={index} style={styles.gradeCard}>
               <View style={styles.gradeHeader}>
@@ -307,7 +275,6 @@ export default function CourseDetailScreen() {
           ))}
         </ScrollView>
       )}
-
       {activeTab === 'content' && (
         <View style={styles.content}>
           <View style={styles.emptyContainer}>
@@ -552,5 +519,5 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#94a3b8',
     marginTop: 8,
-  },
+  }
 });

@@ -1,19 +1,17 @@
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import DashboardScreen from '../screens/DashboardScreen';
-import ProfileScreen from '../screens/ProfileScreen';
-import D2LLoginScreen from '../screens/D2LLoginScreen';
-import PiazzaLoginScreen from '../screens/PiazzaLoginScreen';
+import HomeStack from './HomeStack';
+import NotesUploadScreen from '../screens/NotesUploadScreen';
+import IntegrationsScreen from '../screens/IntegrationsScreen';
 
 const Tab = createBottomTabNavigator();
 
 const MainTabs = () => {
   return (
     <Tab.Navigator>
-      <Tab.Screen name="Dashboard" component={DashboardScreen} />
-      <Tab.Screen name="Profile" component={ProfileScreen} />
-      <Tab.Screen name="D2L Login" component={D2LLoginScreen} />
-      <Tab.Screen name="Piazza Login" component={PiazzaLoginScreen} />
+      <Tab.Screen name="Home" component={HomeStack} />
+      <Tab.Screen name="Upload" component={NotesUploadScreen} />
+      <Tab.Screen name="Sync" component={IntegrationsScreen} />
     </Tab.Navigator>
   );
 };

@@ -2,8 +2,11 @@
     "name": "mcp-workspace",
     "private": true,
     "scripts": {
-      "install:all": "npm --prefix d2l-mcp install",
-      "mcp:launch": "npm --prefix d2l-mcp run mcp:launch",
-      "start": "npm --prefix d2l-mcp start"
+        "install:all": "npm --prefix d2l-mcp install",
+        "mcp:launch": "npm --prefix d2l-mcp run mcp:launch",
+        "start": "npm --prefix d2l-mcp start"
+    },
+    "dependencies": {
+        "@react-native-picker/picker": "^2.11.4"
     }
 }

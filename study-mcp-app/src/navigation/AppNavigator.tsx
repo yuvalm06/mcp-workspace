@@ -18,6 +18,7 @@ import UploadScreen from '../screens/UploadScreen';
 import SettingsScreen from '../screens/SettingsScreen';
 import CoursesScreen from '../screens/CoursesScreen';
 import CourseDetailScreen from '../screens/CourseDetailScreen';
+import IntegrationsScreen from '../screens/IntegrationsScreen';
 import { ActivityIndicator, View } from 'react-native';
 
 const Stack = createNativeStackNavigator();
@@ -25,13 +26,20 @@ const Tab = createBottomTabNavigator();
 
 function MainTabs() {
   const insets = useSafeAreaInsets();
-  
+
   return (
     <Tab.Navigator
       screenOptions={{
         tabBarActiveTintColor: '#6366f1',
         tabBarInactiveTintColor: '#94a3b8',
-        headerShown: false,
+        headerShown: true,
+        headerStyle: {
+          backgroundColor: '#6366f1',
+        },
+        headerTintColor: '#fff',
+        headerTitleStyle: {
+          fontWeight: 'bold',
+        },
         tabBarStyle: {
           backgroundColor: '#ffffff',
           borderTopWidth: 1,
@@ -77,6 +85,16 @@ function MainTabs() {
           tabBarLabel: 'Search',
           tabBarIcon: ({ color, size }) => (
             <AntDesign name="search" size={22} color={color} />
+          ),
+        }}
+      />
+      <Tab.Screen
+        name="Integrations"
+        component={IntegrationsScreen}
+        options={{
+          tabBarLabel: 'Sync',
+          tabBarIcon: ({ color, size }) => (
+            <AntDesign name="sync" size={22} color={color} />
           ),
         }}
       />
