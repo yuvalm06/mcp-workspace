@@ -11,6 +11,7 @@ import {
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { AntDesign } from '@expo/vector-icons';
 import { d2lService } from '../services/d2l';
+import BookmarkButton from '../components/BookmarkButton';
 
 interface Announcement {
   id: number;
@@ -266,12 +267,18 @@ export default function CourseDetailScreen() {
             <View key={announcement.id} style={styles.announcementCard}>
               <View style={styles.announcementHeader}>
                 <Text style={styles.announcementTitle}>{announcement.title}</Text>
-                {announcement.date && (
-                  <Text style={styles.announcementDate}>
-                    {formatDate(announcement.date)}
-                  </Text>
-                )}
+                <BookmarkButton
+                  type="announcement"
+                  refId={String(announcement.id)}
+                  title={announcement.title}
+                  metadata={{ courseId: course.id, courseCode: course.code, snippet: announcement.body?.slice(0, 150) }}
+                />
               </View>
+              {announcement.date && (
+                <Text style={styles.announcementDate}>
+                  {formatDate(announcement.date)}
+                </Text>
+              )}
               {announcement.body && (
                 <Text style={styles.announcementBody}>{announcement.body}</Text>
               )}
@@ -380,9 +387,17 @@ export default function CourseDetailScreen() {
             <View key={a.id || i} style={styles.gradeCard}>
               <View style={styles.gradeHeader}>
                 <Text style={styles.gradeName}>{a.name || a.title || 'Assignment'}</Text>
-                {a.score !== undefined && a.score !== null && (
-                  <Text style={styles.gradePercentage}>{a.score}</Text>
-                )}
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  {a.score !== undefined && a.score !== null && (
+                    <Text style={styles.gradePercentage}>{a.score}</Text>
+                  )}
+                  <BookmarkButton
+                    type="assignment"
+                    refId={String(a.id || i)}
+                    title={a.name || a.title || 'Assignment'}
+                    metadata={{ courseId: course.id, courseCode: course.code, dueDate: a.dueDate }}
+                  />
+                </View>
               </View>
               {a.dueDate && (
                 <Text style={styles.gradeScore}>Due: {formatDate(a.dueDate)}</Text>

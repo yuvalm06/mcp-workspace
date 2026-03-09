@@ -14,6 +14,7 @@ import { useNavigation } from '@react-navigation/native';
 import { AntDesign } from '@expo/vector-icons';
 import { notesService } from '../services/notes';
 import { Note } from '../types';
+import BookmarkButton from '../components/BookmarkButton';
 
 export default function NotesScreen() {
   const [notes, setNotes] = useState<Note[]>([]);
@@ -85,9 +86,17 @@ export default function NotesScreen() {
 
   const renderNote = ({ item }: { item: Note }) => (
     <TouchableOpacity style={styles.noteCard}>
-      <Text style={styles.noteTitle}>{item.title}</Text>
-      {item.courseId && (
-        <Text style={styles.noteCourse}>{item.courseId}</Text>
+      <View style={styles.noteCardHeader}>
+        <Text style={styles.noteTitle} numberOfLines={2}>{item.title}</Text>
+        <BookmarkButton
+          type="note"
+          refId={item.id}
+          title={item.title}
+          metadata={{ courseId: item.courseId || item.course_id, snippet: `${item.pageCount || 0} pages` }}
+        />
+      </View>
+      {(item.courseId || item.course_id) && (
+        <Text style={styles.noteCourse}>{item.courseId || item.course_id}</Text>
       )}
       <View style={styles.noteMeta}>
         {item.pageCount && (
@@ -263,11 +272,18 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#e2e8f0',
   },
+  noteCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
   noteTitle: {
     fontSize: 18,
     fontWeight: '600',
     color: '#1e293b',
-    marginBottom: 8,
+    flex: 1,
+    marginRight: 8,
   },
   noteCourse: {
     fontSize: 13,

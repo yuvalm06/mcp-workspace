@@ -6,6 +6,7 @@ import NotesUploadScreen from '../screens/NotesUploadScreen';
 import IntegrationsScreen from '../screens/IntegrationsScreen';
 import NotesScreen from '../screens/NotesScreen';
 import PiazzaScreen from '../screens/PiazzaScreen';
+import SavedScreen from '../screens/SavedScreen';
 import { colors } from '../theme';
 
 const Tab = createBottomTabNavigator();
@@ -32,6 +33,7 @@ const MainTabs = () => {
             Notes: 'book',
             Upload: 'upload',
             Piazza: 'message1',
+            Saved: 'staro',
             Sync: 'setting',
           };
           return <AntDesign name={(icons[route.name] || 'appstore') as any} size={size} color={color} />;
@@ -42,6 +44,7 @@ const MainTabs = () => {
       <Tab.Screen name="Notes" component={NotesScreen} />
       <Tab.Screen name="Upload" component={NotesUploadScreen} />
       <Tab.Screen name="Piazza" component={PiazzaScreen} />
+      <Tab.Screen name="Saved" component={SavedScreen} />
       <Tab.Screen name="Sync" component={IntegrationsScreen} />
     </Tab.Navigator>
   );

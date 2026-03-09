@@ -13,6 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { AntDesign } from '@expo/vector-icons';
 import { piazzaService } from '../services/piazza';
 import { colors } from '../theme';
+import BookmarkButton from '../components/BookmarkButton';
 
 interface PiazzaPost {
   id: string;
@@ -126,6 +127,13 @@ export default function PiazzaScreen() {
             </View>
           )}
         </View>
+        <BookmarkButton
+          type="piazza_post"
+          refId={item.postId || item.id}
+          title={item.title || item.subject || 'Piazza Post'}
+          url={item.url}
+          metadata={{ courseId: item.courseId, snippet: item.snippet }}
+        />
       </View>
       <Text style={styles.postTitle} numberOfLines={2}>{item.title || item.subject || 'Untitled'}</Text>
       {item.snippet && (

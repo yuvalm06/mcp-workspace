@@ -1602,24 +1602,127 @@ router.post("/push/sync", async (req: Request, res: Response) => {
   }
 });
 
+// ============= BOOKMARKS =============
+
+/** GET /api/bookmarks — List bookmarks for current user, optionally filtered by type */
+router.get("/bookmarks", async (req: Request, res: Response) => {
+  const userId = req.userId!;
+  const type = req.query.type as string | undefined;
+
+  try {
+    let query = supabase
+      .from("bookmarks")
+      .select("id, type, ref_id, title, url, metadata, created_at")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false });
+
+    if (type) query = query.eq("type", type);
+
+    const { data, error } = await query;
+    if (error) {
+      res.status(500).json({ error: "Failed to fetch bookmarks" });
+      return;
+    }
+    res.json({ bookmarks: data ?? [] });
+  } catch (e) {
+    res.status(500).json({ error: "Failed to fetch bookmarks", details: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+/** POST /api/bookmarks — Create a bookmark */
+router.post("/bookmarks", async (req: Request, res: Response) => {
+  const userId = req.userId!;
+  const { type, ref_id, title, url, metadata } = req.body || {};
+
+  if (!type || !ref_id || !title) {
+    res.status(400).json({ error: "type, ref_id, and title are required" });
+    return;
+  }
+
+  const validTypes = ['note', 'piazza_post', 'announcement', 'assignment'];
+  if (!validTypes.includes(type)) {
+    res.status(400).json({ error: `type must be one of: ${validTypes.join(', ')}` });
+    return;
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from("bookmarks")
+      .upsert({
+        user_id: userId,
+        type,
+        ref_id: String(ref_id),
+        title,
+        url: url || null,
+        metadata: metadata || {},
+      }, { onConflict: "user_id,type,ref_id" })
+      .select("id, type, ref_id, title, url, metadata, created_at")
+      .single();
+
+    if (error) {
+      res.status(500).json({ error: "Failed to create bookmark" });
+      return;
+    }
+    res.status(201).json({ bookmark: data });
+  } catch (e) {
+    res.status(500).json({ error: "Failed to create bookmark", details: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+/** DELETE /api/bookmarks/:id — Remove a bookmark by id */
+router.delete("/bookmarks/:id", async (req: Request, res: Response) => {
+  const userId = req.userId!;
+  const { id } = req.params;
+
+  try {
+    const { error } = await supabase
+      .from("bookmarks")
+      .delete()
+      .eq("user_id", userId)
+      .eq("id", id);
+
+    if (error) {
+      res.status(500).json({ error: "Failed to delete bookmark" });
+      return;
+    }
+    res.json({ status: "deleted", id });
+  } catch (e) {
+    res.status(500).json({ error: "Failed to delete bookmark", details: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+/** DELETE /api/bookmarks/ref/:type/:ref_id — Remove a bookmark by type+ref_id (convenient for toggle) */
+router.delete("/bookmarks/ref/:type/:ref_id", async (req: Request, res: Response) => {
+  const userId = req.userId!;
+  const { type, ref_id } = req.params;
+
+  try {
+    const { error } = await supabase
+      .from("bookmarks")
+      .delete()
+      .eq("user_id", userId)
+      .eq("type", type)
+      .eq("ref_id", ref_id);
+
+    if (error) {
+      res.status(500).json({ error: "Failed to delete bookmark" });
+      return;
+    }
+    res.json({ status: "deleted" });
+  } catch (e) {
+    res.status(500).json({ error: "Failed to delete bookmark", details: e instanceof Error ? e.message : String(e) });
+  }
+});
+
 /** POST /api/auth/logout — Logout user (clear any server-side sessions if needed) */
 router.post("/auth/logout", async (req: Request, res: Response) => {
   const userId = req.userId!;
   try {
-    // For JWT-based auth (Cognito), logout is primarily client-side (clear token)
-    // But we can clear any server-side caches or sessions here if needed
-    // For now, just return success - client will clear token
     console.error(`[API] User ${userId} logged out`);
-    res.json({ 
-      status: "success",
-      message: "Logged out successfully" 
-    });
+    res.json({ status: "success", message: "Logged out successfully" });
   } catch (e) {
     console.error("[API] auth/logout error:", e);
-    res.status(500).json({ 
-      error: "Failed to logout", 
-      details: e instanceof Error ? e.message : String(e) 
-    });
+    res.status(500).json({ error: "Failed to logout", details: e instanceof Error ? e.message : String(e) });
   }
 });
 
