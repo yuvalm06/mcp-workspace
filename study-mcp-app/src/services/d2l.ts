@@ -233,6 +233,19 @@ export class D2LService {
 
 
   /**
+   * Get content modules for a course
+   */
+  async getContent(courseId: string): Promise<any[]> {
+    try {
+      const response = await apiClient.get(`/d2l/courses/${courseId}/content`);
+      return response.data.modules || response.data.content || [];
+    } catch (error: any) {
+      console.error('Error fetching content:', error);
+      throw new Error(error.response?.data?.error || 'Failed to fetch course content');
+    }
+  }
+
+  /**
    * Disconnect D2L (remove stored credentials)
    */
   async disconnect(): Promise<void> {

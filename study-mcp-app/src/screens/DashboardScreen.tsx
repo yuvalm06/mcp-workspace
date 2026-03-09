@@ -14,22 +14,69 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { AntDesign } from '@expo/vector-icons';
 import { dashboardService } from '../services/dashboard';
+import { d2lService } from '../services/d2l';
 import { DashboardResponse, Note } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { colors } from '../theme';
+
+interface UpcomingAssignment {
+  courseId: string;
+  courseName: string;
+  courseCode: string;
+  name: string;
+  dueDate: string;
+}
 
 
 export default function DashboardScreen() {
   const navigation = useNavigation();
   const [dashboard, setDashboard] = useState<DashboardResponse | null>(null);
+  const [upcoming, setUpcoming] = useState<UpcomingAssignment[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const { logout, user } = useAuth();
+
+  const loadUpcoming = async () => {
+    try {
+      const courses = await d2lService.getCourses();
+      const now = new Date();
+      const cutoff = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+      const allAssignments: UpcomingAssignment[] = [];
+      await Promise.all(
+        courses.slice(0, 6).map(async (course: any) => {
+          try {
+            const assignments = await d2lService.getAssignments(course.id);
+            for (const a of assignments) {
+              if (a.dueDate) {
+                const due = new Date(a.dueDate);
+                if (due >= now && due <= cutoff) {
+                  allAssignments.push({
+                    courseId: course.id,
+                    courseName: course.name,
+                    courseCode: course.code,
+                    name: a.name || a.title || 'Assignment',
+                    dueDate: a.dueDate,
+                  });
+                }
+              }
+            }
+          } catch {
+            // skip failed courses silently
+          }
+        })
+      );
+      allAssignments.sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
+      setUpcoming(allAssignments);
+    } catch {
+      // Upcoming is non-critical, fail silently
+    }
+  };
 
   const loadDashboard = async () => {
     try {
       const data = await dashboardService.getDashboard();
       setDashboard(data);
+      loadUpcoming(); // non-blocking
     } catch (error: any) {
       console.error('Error loading dashboard:', error);
       // Show user-friendly error message
@@ -156,6 +203,38 @@ export default function DashboardScreen() {
               <AntDesign name="right" size={20} color={colors.muted} />
             </View>
           </TouchableOpacity>
+        </View>
+
+        {/* Upcoming Assignments Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Due This Week</Text>
+          {upcoming.length > 0 ? (
+            upcoming.map((item, i) => (
+              <View key={i} style={styles.upcomingCard}>
+                <View style={styles.upcomingLeft}>
+                  <View style={styles.dueDateBox}>
+                    <Text style={styles.dueDateDay}>
+                      {new Date(item.dueDate).toLocaleDateString('en-US', { day: 'numeric' })}
+                    </Text>
+                    <Text style={styles.dueDateMonth}>
+                      {new Date(item.dueDate).toLocaleDateString('en-US', { month: 'short' })}
+                    </Text>
+                  </View>
+                </View>
+                <View style={styles.upcomingContent}>
+                  <Text style={styles.upcomingName} numberOfLines={1}>{item.name}</Text>
+                  <View style={styles.courseBadge}>
+                    <Text style={styles.courseText}>{item.courseCode}</Text>
+                  </View>
+                </View>
+              </View>
+            ))
+          ) : (
+            <View style={styles.emptyState}>
+              <AntDesign name="checkcircleo" size={36} color={colors.muted} />
+              <Text style={styles.emptyText}>Nothing due this week</Text>
+            </View>
+          )}
         </View>
 
         {/* Recent Notes Section */}
@@ -450,5 +529,52 @@ const styles = StyleSheet.create({
   coursesSubtitle: {
     fontSize: 14,
     color: colors.info,
+  },
+  upcomingCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.card,
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: colors.border,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 1,
+  },
+  upcomingLeft: {
+    marginRight: 14,
+  },
+  dueDateBox: {
+    width: 44,
+    height: 44,
+    borderRadius: 10,
+    backgroundColor: colors.accent + '22',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  dueDateDay: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.accent,
+    lineHeight: 18,
+  },
+  dueDateMonth: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: colors.accent,
+    textTransform: 'uppercase',
+  },
+  upcomingContent: {
+    flex: 1,
+  },
+  upcomingName: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.text,
+    marginBottom: 6,
   },
 });

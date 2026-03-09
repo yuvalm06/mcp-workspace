@@ -33,12 +33,19 @@ export default function CourseDetailScreen() {
   const { course } = (route.params as { course: Course }) || {};
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [grades, setGrades] = useState<any[]>([]);
+  const [assignments, setAssignments] = useState<any[]>([]);
+  const [contentModules, setContentModules] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [gradesLoading, setGradesLoading] = useState(false);
+  const [assignmentsLoading, setAssignmentsLoading] = useState(false);
+  const [contentLoading, setContentLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [gradesError, setGradesError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'announcements' | 'grades' | 'content'>('announcements');
+  const [assignmentsError, setAssignmentsError] = useState<string | null>(null);
+  const [contentError, setContentError] = useState<string | null>(null);
+  const [expandedModules, setExpandedModules] = useState<Set<string>>(new Set());
+  const [activeTab, setActiveTab] = useState<'announcements' | 'grades' | 'assignments' | 'content'>('announcements');
 
   // --- Implementation for missing handlers ---
   async function loadAnnouncements() {
@@ -71,12 +78,58 @@ export default function CourseDetailScreen() {
     }
   }
 
+  async function loadAssignments() {
+    if (!course) return;
+    setAssignmentsLoading(true);
+    setAssignmentsError(null);
+    try {
+      const data = await d2lService.getAssignments(course.id);
+      setAssignments(data);
+    } catch (err: any) {
+      setAssignmentsError(err.message || 'Failed to load assignments');
+    } finally {
+      setAssignmentsLoading(false);
+      setRefreshing(false);
+    }
+  }
+
+  async function loadContent() {
+    if (!course) return;
+    setContentLoading(true);
+    setContentError(null);
+    try {
+      const data = await d2lService.getContent(course.id);
+      setContentModules(data);
+    } catch (err: any) {
+      setContentError(err.message || 'Failed to load course content');
+    } finally {
+      setContentLoading(false);
+      setRefreshing(false);
+    }
+  }
+
+  function toggleModule(moduleId: string) {
+    setExpandedModules(prev => {
+      const next = new Set(prev);
+      if (next.has(moduleId)) {
+        next.delete(moduleId);
+      } else {
+        next.add(moduleId);
+      }
+      return next;
+    });
+  }
+
   function onRefresh() {
     setRefreshing(true);
     if (activeTab === 'announcements') {
       loadAnnouncements();
     } else if (activeTab === 'grades') {
       loadGrades();
+    } else if (activeTab === 'assignments') {
+      loadAssignments();
+    } else if (activeTab === 'content') {
+      loadContent();
     }
   }
 
@@ -92,9 +145,13 @@ export default function CourseDetailScreen() {
         loadAnnouncements();
       } else if (activeTab === 'grades') {
         loadGrades();
+      } else if (activeTab === 'assignments') {
+        loadAssignments();
+      } else if (activeTab === 'content') {
+        loadContent();
       }
     }
-  }, [course, activeTab]); 
+  }, [course, activeTab]);
 
   if (!course) {
     return (
@@ -137,7 +194,20 @@ export default function CourseDetailScreen() {
             color={activeTab === 'announcements' ? '#6366f1' : '#94a3b8'}
           />
           <Text style={[styles.tabText, activeTab === 'announcements' && styles.activeTabText]}>
-            Announcements
+            News
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.tab, activeTab === 'assignments' && styles.activeTab]}
+          onPress={() => setActiveTab('assignments')}
+        >
+          <AntDesign
+            name="checkcircleo"
+            size={18}
+            color={activeTab === 'assignments' ? '#6366f1' : '#94a3b8'}
+          />
+          <Text style={[styles.tabText, activeTab === 'assignments' && styles.activeTabText]}>
+            Work
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
@@ -158,7 +228,7 @@ export default function CourseDetailScreen() {
           onPress={() => setActiveTab('content')}
         >
           <AntDesign
-            name="filetext"
+            name="filetext1"
             size={18}
             color={activeTab === 'content' ? '#6366f1' : '#94a3b8'}
           />
@@ -279,16 +349,106 @@ export default function CourseDetailScreen() {
           ))}
         </ScrollView>
       )}
+      {activeTab === 'assignments' && (
+        <ScrollView
+          style={styles.content}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        >
+          {assignmentsLoading && (
+            <View style={styles.centerContainer}>
+              <ActivityIndicator size="large" color="#6366f1" />
+              <Text style={styles.loadingText}>Loading assignments...</Text>
+            </View>
+          )}
+          {!assignmentsLoading && assignmentsError && (
+            <View style={styles.errorContainer}>
+              <AntDesign name="exclamationcircleo" size={32} color="#ef4444" />
+              <Text style={styles.errorText}>{assignmentsError}</Text>
+              <TouchableOpacity style={styles.retryButton} onPress={loadAssignments}>
+                <Text style={styles.retryButtonText}>Retry</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+          {!assignmentsLoading && !assignmentsError && assignments.length === 0 && (
+            <View style={styles.emptyContainer}>
+              <AntDesign name="checkcircleo" size={48} color="#94a3b8" />
+              <Text style={styles.emptyText}>No assignments</Text>
+              <Text style={styles.emptySubtext}>Nothing due right now</Text>
+            </View>
+          )}
+          {!assignmentsLoading && !assignmentsError && assignments.map((a, i) => (
+            <View key={a.id || i} style={styles.gradeCard}>
+              <View style={styles.gradeHeader}>
+                <Text style={styles.gradeName}>{a.name || a.title || 'Assignment'}</Text>
+                {a.score !== undefined && a.score !== null && (
+                  <Text style={styles.gradePercentage}>{a.score}</Text>
+                )}
+              </View>
+              {a.dueDate && (
+                <Text style={styles.gradeScore}>Due: {formatDate(a.dueDate)}</Text>
+              )}
+              {a.completionStatus && (
+                <Text style={[styles.gradeScore, a.completionStatus === 'Completed' && { color: '#16a34a' }]}>
+                  {a.completionStatus}
+                </Text>
+              )}
+              {a.instructions && (
+                <Text style={styles.feedbackText} numberOfLines={3}>{a.instructions}</Text>
+              )}
+            </View>
+          ))}
+        </ScrollView>
+      )}
       {activeTab === 'content' && (
-        <View style={styles.content}>
-          <View style={styles.emptyContainer}>
-            <AntDesign name="filetext" size={48} color="#94a3b8" />
-            <Text style={styles.emptyText}>Course content coming soon</Text>
-            <Text style={styles.emptySubtext}>
-              This feature will show course modules, topics, and materials
-            </Text>
-          </View>
-        </View>
+        <ScrollView
+          style={styles.content}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        >
+          {contentLoading && (
+            <View style={styles.centerContainer}>
+              <ActivityIndicator size="large" color="#6366f1" />
+              <Text style={styles.loadingText}>Loading content...</Text>
+            </View>
+          )}
+          {!contentLoading && contentError && (
+            <View style={styles.errorContainer}>
+              <AntDesign name="exclamationcircleo" size={32} color="#ef4444" />
+              <Text style={styles.errorText}>{contentError}</Text>
+              <TouchableOpacity style={styles.retryButton} onPress={loadContent}>
+                <Text style={styles.retryButtonText}>Retry</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+          {!contentLoading && !contentError && contentModules.length === 0 && (
+            <View style={styles.emptyContainer}>
+              <AntDesign name="filetext1" size={48} color="#94a3b8" />
+              <Text style={styles.emptyText}>No content available</Text>
+              <Text style={styles.emptySubtext}>Course modules will appear here</Text>
+            </View>
+          )}
+          {!contentLoading && !contentError && contentModules.map((mod, i) => (
+            <View key={mod.id || i} style={styles.moduleCard}>
+              <TouchableOpacity
+                style={styles.moduleHeader}
+                onPress={() => toggleModule(mod.id || String(i))}
+              >
+                <AntDesign name="folder1" size={20} color="#6366f1" />
+                <Text style={styles.moduleName}>{mod.title || mod.name || 'Module'}</Text>
+                <AntDesign
+                  name={expandedModules.has(mod.id || String(i)) ? 'up' : 'down'}
+                  size={16}
+                  color="#94a3b8"
+                />
+              </TouchableOpacity>
+              {expandedModules.has(mod.id || String(i)) && mod.topics && mod.topics.map((topic: any, j: number) => (
+                <View key={topic.id || j} style={styles.topicItem}>
+                  <AntDesign name="filetext1" size={16} color="#64748b" />
+                  <Text style={styles.topicName}>{topic.title || topic.name || 'Topic'}</Text>
+                </View>
+              ))}
+            </View>
+          ))}
+        </ScrollView>
       )}
     </View>
   );
@@ -523,5 +683,41 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#94a3b8',
     marginTop: 8,
-  }
+  },
+  moduleCard: {
+    backgroundColor: '#ffffff',
+    margin: 16,
+    marginBottom: 0,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    overflow: 'hidden',
+  },
+  moduleHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    gap: 10,
+  },
+  moduleName: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1e293b',
+  },
+  topicItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    gap: 10,
+    backgroundColor: '#f8fafc',
+    borderTopWidth: 1,
+    borderTopColor: '#e2e8f0',
+  },
+  topicName: {
+    flex: 1,
+    fontSize: 14,
+    color: '#475569',
+  },
 });
