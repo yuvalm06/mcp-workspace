@@ -1,8 +1,8 @@
 {
   "expo": {
-    "name": "study-mcp-app",
-    "slug": "study-mcp-app",
-    "scheme": "study-mcp",
+    "name": "Horizon",
+    "slug": "horizon",
+    "scheme": "horizon",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -15,7 +15,12 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.studymcp.app"
+      "bundleIdentifier": "ca.hamzaammar.horizon",
+      "infoPlist": {
+        "NSPhotoLibraryUsageDescription": "Horizon uses your photo library to attach images to notes.",
+        "NSCameraUsageDescription": "Horizon uses your camera to capture documents for notes.",
+        "NSMicrophoneUsageDescription": "Horizon may use the microphone for voice notes."
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -24,7 +29,7 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.studymcp.app"
+      "package": "ca.hamzaammar.horizon"
     },
     "web": {
       "favicon": "./assets/favicon.png"

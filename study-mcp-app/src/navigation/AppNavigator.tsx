@@ -62,7 +62,8 @@ function MainTabs() {
         name="Dashboard"
         component={DashboardScreen}
         options={{
-          tabBarLabel: 'Dashboard',
+          headerShown: false,
+          tabBarLabel: 'Home',
           tabBarIcon: ({ color, size }) => (
             <AntDesign name="home" size={22} color={color} />
           ),
@@ -72,6 +73,7 @@ function MainTabs() {
         name="Notes"
         component={NotesScreen}
         options={{
+          headerShown: false,
           tabBarLabel: 'Notes',
           tabBarIcon: ({ color, size }) => (
             <AntDesign name="book" size={22} color={color} />
@@ -82,6 +84,7 @@ function MainTabs() {
         name="Search"
         component={SearchScreen}
         options={{
+          headerShown: false,
           tabBarLabel: 'Search',
           tabBarIcon: ({ color, size }) => (
             <AntDesign name="search" size={22} color={color} />
@@ -92,6 +95,7 @@ function MainTabs() {
         name="Integrations"
         component={IntegrationsScreen}
         options={{
+          headerShown: true,
           tabBarLabel: 'Sync',
           tabBarIcon: ({ color, size }) => (
             <AntDesign name="sync" size={22} color={color} />
@@ -102,6 +106,7 @@ function MainTabs() {
         name="Settings"
         component={SettingsScreen}
         options={{
+          headerShown: false,
           tabBarLabel: 'Settings',
           tabBarIcon: ({ color, size }) => (
             <AntDesign name="setting" size={22} color={color} />

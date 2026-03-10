@@ -163,10 +163,6 @@ export default function DashboardScreen() {
               })()}
             </Text>
           </View>
-          <TouchableOpacity onPress={logout} style={styles.logoutButton}>
-            <AntDesign name="poweroff" size={16} color={colors.accent} style={{ marginRight: 6 }} />
-            <Text style={styles.logoutText}>Logout</Text>
-          </TouchableOpacity>
         </View>
 
         {/* Stats Cards */}

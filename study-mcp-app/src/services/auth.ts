@@ -67,6 +67,16 @@ export class AuthService {
     this.currentUser = null;
   }
 
+  async confirmSignUp(email: string, code: string): Promise<void> {
+    const { error } = await supabase.auth.verifyOtp({ email, token: code, type: 'signup' });
+    if (error) throw new Error(error.message);
+  }
+
+  async resendConfirmationCode(email: string): Promise<void> {
+    const { error } = await supabase.auth.resend({ type: 'signup', email });
+    if (error) throw new Error(error.message);
+  }
+
   // Placeholders to satisfy AuthContext if it expects them
   async setToken(token: string) { }
   async setUser(user: any) {

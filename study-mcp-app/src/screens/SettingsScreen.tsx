@@ -257,7 +257,7 @@ export default function SettingsScreen() {
           <Text style={styles.sectionTitle}>Notes</Text>
           <TouchableOpacity style={styles.actionButton} onPress={handleEmbedMissing}>
             <View style={styles.actionButtonHeader}>
-              <AntDesign name="file-text" size={18} color="#6366f1" style={{ marginRight: 10 }} />
+              <AntDesign name="filetext1" size={18} color="#6366f1" style={{ marginRight: 10 }} />
               <Text style={styles.actionButtonText}>Embed Missing Notes</Text>
             </View>
             <Text style={styles.actionButtonSubtext}>

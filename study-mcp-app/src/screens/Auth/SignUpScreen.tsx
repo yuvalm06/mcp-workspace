@@ -10,7 +10,6 @@ import {
 } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
 import { useNavigation } from '@react-navigation/native';
-import { authService } from '../../services/auth';
 
 export default function SignUpScreen() {
   const [name, setName] = useState('');
@@ -120,7 +119,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginBottom: 8,
     textAlign: 'center',
-    color: '#1e293b',
+    color: '#6366f1',
   },
   subtitle: {
     fontSize: 16,
