@@ -22,8 +22,10 @@ aws ecr get-login-password --region $REGION | \
 
 # Step 3: Build and push Docker image for linux/amd64 (ECS Fargate requirement)
 echo "🐳 Building Docker image for linux/amd64..."
-# Create buildx builder if it doesn't exist
-docker buildx create --use --name multiarch-builder 2>/dev/null || docker buildx use multiarch-builder
+# Create buildx builder if it doesn't exist, reuse if it does
+docker buildx inspect multiarch-builder &>/dev/null \
+  && docker buildx use multiarch-builder \
+  || docker buildx create --use --name multiarch-builder
 
 # Build directly for linux/amd64 and push to ECR (more efficient)
 echo "📤 Building and pushing to ECR..."
