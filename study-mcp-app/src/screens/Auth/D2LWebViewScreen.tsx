@@ -12,7 +12,7 @@ import { useNavigation } from '@react-navigation/native';
 import { AntDesign } from '@expo/vector-icons';
 import CookieManager from '@react-native-cookies/cookies';
 import { d2lService } from '../../services/d2l';
-import { supabase } from '../../lib/supabase';
+import { apiClient } from '../../config/api';
 
 export default function D2LWebViewScreen({ route }: any) {
   const { host, username, password } = route.params;
@@ -73,17 +73,8 @@ export default function D2LWebViewScreen({ route }: any) {
     try {
       await d2lService.connectWithCookies({ host, cookies: cookiesToUse });
 
-      // Trigger Edge Function sync
-      const { data, error } = await supabase.functions.invoke('study-logic/d2l/sync', {
-        body: { action: 'sync_d2l', host, cookies: cookiesToUse },
-      });
-
-      if (error) {
-        console.error('[D2L WebView] Edge Function error:', error);
-        Alert.alert('Error', 'Failed to trigger sync. Please try again.');
-        setSubmitting(false);
-        return;
-      }
+      // Trigger sync via ECS backend
+      const { data } = await apiClient.post('/d2l/sync', { action: 'sync_d2l', host, cookies: cookiesToUse });
 
       console.log('[D2L WebView] Sync response:', data);
 

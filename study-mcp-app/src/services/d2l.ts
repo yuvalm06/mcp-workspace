@@ -1,5 +1,4 @@
 import { apiClient } from '../config/api';
-import { supabase } from './supabase';
 
 export interface D2LStatus {
   connected: boolean;
