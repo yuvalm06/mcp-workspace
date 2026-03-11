@@ -129,6 +129,9 @@ export async function authMiddleware(
       next();
       return;
     } catch (err) {
+      console.error("[AUTH] Supabase JWT verification failed:", err instanceof Error ? err.message : err);
+      console.error("[AUTH] Token prefix:", token.substring(0, 20));
+      console.error("[AUTH] Secret length:", SUPABASE_JWT_SECRET.length);
       res.status(401).json({ error: "Invalid or expired token" });
       return;
     }
