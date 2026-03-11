@@ -419,6 +419,14 @@ async function main() {
     // Health check (no auth) for ALB / load balancers
     app.get("/health", (_req, res) => res.json({ ok: true }));
 
+    // Debug: check which env vars are loaded (no secrets exposed)
+    app.get("/debug/env", (_req, res) => res.json({
+      hasCognitoPoolId: !!process.env.COGNITO_USER_POOL_ID,
+      hasCognitoClientId: !!process.env.COGNITO_CLIENT_ID,
+      hasSupabaseJwtSecret: !!process.env.SUPABASE_JWT_SECRET,
+      supabaseJwtSecretLength: process.env.SUPABASE_JWT_SECRET?.length ?? 0,
+    }));
+
     // REST API (app-first): /api/notes, /api/search, /api/dashboard
     app.use("/api", authMiddleware, apiRoutes);
 
