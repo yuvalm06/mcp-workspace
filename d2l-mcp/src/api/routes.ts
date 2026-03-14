@@ -487,8 +487,6 @@ router.post("/d2l/connect-and-sync", async (req: Request, res: Response) => {
         user_id: userId,
         service: "d2l",
         host,
-        email: `cookie-auth-${userId}@d2l.local`,
-        password: cookies,
         token: cookies,
         updated_at: new Date().toISOString(),
       }, { onConflict: "user_id,service" });
