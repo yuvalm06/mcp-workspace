@@ -255,6 +255,15 @@ export default function SettingsScreen() {
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Notes</Text>
+          <TouchableOpacity style={styles.actionButton} onPress={() => (navigation.navigate as any)('Bookmarks')}>
+            <View style={styles.actionButtonHeader}>
+              <AntDesign name="star" size={18} color="#6366f1" style={{ marginRight: 10 }} />
+              <Text style={styles.actionButtonText}>Bookmarks</Text>
+            </View>
+            <Text style={styles.actionButtonSubtext}>
+              View your saved notes, assignments and posts
+            </Text>
+          </TouchableOpacity>
           <TouchableOpacity style={styles.actionButton} onPress={handleEmbedMissing}>
             <View style={styles.actionButtonHeader}>
               <AntDesign name="filetext1" size={18} color="#6366f1" style={{ marginRight: 10 }} />

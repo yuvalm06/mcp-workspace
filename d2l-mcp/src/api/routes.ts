@@ -1168,6 +1168,7 @@ router.get("/d2l/courses/:courseId/assignments", async (req: Request, res: Respo
         id: a.id,
         name: a.name,
         dueDate: a.dueDate,
+        dueDateIso: a.dueDateIso || null,
         instructions: a.instructions || null,
       })),
     });
