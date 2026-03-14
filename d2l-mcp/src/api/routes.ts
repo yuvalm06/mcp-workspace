@@ -465,6 +465,115 @@ router.post("/notes/embed-missing", async (req: Request, res: Response) => {
 });
 
 /** POST /api/d2l/connect — Store D2L credentials for user */
+/** POST /api/d2l/connect-and-sync — Store cookies + ingest pre-fetched course/assignment data from app
+ *  The app fetches D2L data on-device (where session cookies are valid), then pushes
+ *  the raw results here. No server-side D2L calls needed — avoids IP/session mismatch. */
+router.post("/d2l/connect-and-sync", async (req: Request, res: Response) => {
+  const userId = req.userId!;
+  const { host, cookies, courseData } = req.body || {};
+
+  if (!host || !cookies) {
+    res.status(400).json({ error: "host and cookies required" });
+    return;
+  }
+
+  const correlationId = `cas-${Date.now()}-${Math.random().toString(36).substring(7)}`;
+
+  try {
+    // 1. Store cookies
+    const { error: upsertError } = await supabase
+      .from("user_credentials")
+      .upsert({
+        user_id: userId,
+        service: "d2l",
+        host,
+        email: `cookie-auth-${userId}@d2l.local`,
+        password: cookies,
+        token: cookies,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "user_id,service" });
+
+    if (upsertError) {
+      console.error(`[API] [${correlationId}] Failed to store cookies:`, upsertError);
+      res.status(500).json({ error: "Failed to store credentials" });
+      return;
+    }
+
+    // Clear cached token so next request picks up fresh cookies
+    const { clearTokenCache } = await import("../auth.js");
+    clearTokenCache(userId);
+
+    // 2. Ingest pre-fetched assignment data (app fetched this on-device)
+    let totalAdded = 0;
+    let totalAssignments = 0;
+    const results: Array<{ course: string; assignments: number; added: number }> = [];
+
+    if (Array.isArray(courseData)) {
+      for (const course of courseData) {
+        const { orgUnitId, name: courseName, assignments = [] } = course;
+        totalAssignments += assignments.length;
+        let addedCount = 0;
+
+        for (const a of assignments) {
+          const dueDate = a.DueDate || null;
+          if (!dueDate) continue;
+
+          const sourceRef = `${orgUnitId}-${a.Id}`;
+
+          const { data: existing } = await supabase
+            .from("tasks")
+            .select("id")
+            .eq("user_id", userId)
+            .eq("source_ref", sourceRef)
+            .maybeSingle();
+
+          if (!existing) {
+            const { error: insertError } = await supabase
+              .from("tasks")
+              .insert({
+                user_id: userId,
+                title: a.Name,
+                course_id: String(orgUnitId),
+                source: `d2l-${orgUnitId}`,
+                source_ref: sourceRef,
+                due_at: dueDate,
+                status: "open",
+              });
+
+            if (!insertError) {
+              addedCount++;
+              totalAdded++;
+            } else {
+              console.error(`[API] [${correlationId}] Insert error for ${a.Name}:`, insertError);
+            }
+          }
+        }
+
+        results.push({ course: courseName, assignments: assignments.length, added: addedCount });
+      }
+    }
+
+    console.error(`[API] [${correlationId}] connect-and-sync complete: ${totalAdded}/${totalAssignments} tasks added`);
+
+    res.json({
+      status: "connected",
+      message: "D2L connected and synced successfully",
+      totalCourses: courseData?.length || 0,
+      totalAssignments,
+      totalAdded,
+      results,
+      correlationId,
+    });
+  } catch (e) {
+    console.error(`[API] [${correlationId}] connect-and-sync error:`, e);
+    res.status(500).json({
+      error: "Failed to connect and sync",
+      details: e instanceof Error ? e.message : String(e),
+      correlationId,
+    });
+  }
+});
+
 /** POST /api/d2l/connect-cookie — Store D2L cookies directly (from WebView) */
 router.post("/d2l/connect-cookie", async (req: Request, res: Response) => {
   const userId = req.userId!;
