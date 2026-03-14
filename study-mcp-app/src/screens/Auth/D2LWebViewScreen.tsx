@@ -10,6 +10,7 @@ import {
 import { WebView } from 'react-native-webview';
 import { useNavigation } from '@react-navigation/native';
 import { AntDesign } from '@expo/vector-icons';
+import CookieManager from '@react-native-cookies/cookies';
 import { apiClient } from '../../config/api';
 
 const D2L_API_VERSION = '1.57';
@@ -106,11 +107,7 @@ export default function D2LWebViewScreen({ route }: any) {
         setSubmitting(true);
         setStatusText('Saving to your account...');
 
-        // We still need cookies to store — get them via CookieManager as before
-        // but now we don't need them for the D2L fetch (WebView did that)
-        // Just send courseData without cookies and let backend handle cookie-free storage
-        // Actually we need cookies for auth on subsequent syncs — get them
-        const CookieManager = require('@react-native-cookies/cookies').default;
+        // Get cookies via CookieManager (imported at top)
         const cookies = await CookieManager.get(`https://${host}`, true);
         const d2lSessionVal = cookies.d2lSessionVal?.value;
         const d2lSecureSessionVal = cookies.d2lSecureSessionVal?.value;
