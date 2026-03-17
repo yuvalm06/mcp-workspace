@@ -1,38 +1,58 @@
 import React, { useState } from 'react';
-import { supabase } from '../services/supabase';
+import { TouchableOpacity, Text, StyleSheet, ActivityIndicator, Alert } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
+import { apiClient } from '../config/api';
 
 const UploadNote = () => {
   const [uploading, setUploading] = useState(false);
 
   const handleUpload = async () => {
-    const result = await DocumentPicker.getDocumentAsync({ type: '*/*' });
-    if (result.type === 'cancel') return;
+    const result = await DocumentPicker.getDocumentAsync({ type: 'application/pdf' });
+    // New API: result.canceled + result.assets[]
+    if (result.canceled || !result.assets?.length) return;
 
+    const asset = result.assets[0];
     setUploading(true);
     try {
-      const { name, uri } = result;
-      const response = await fetch(uri);
-      const file = await response.blob();
+      const response = await fetch(asset.uri);
+      const blob = await response.blob();
 
-      const { data, error } = await supabase.storage.from('notes').upload(name, file);
-      if (error) {
-        console.error('Error uploading file:', error);
-      } else {
-        if (__DEV__) console.log('File uploaded successfully:', data);
-      }
-    } catch (error) {
-      console.error('Unexpected error during file upload:', error);
+      const formData = new FormData();
+      formData.append('file', blob as any, asset.name);
+      if (asset.name) formData.append('title', asset.name.replace(/\.pdf$/i, ''));
+
+      await apiClient.post('/notes/upload', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+
+      Alert.alert('Uploaded!', `"${asset.name}" is being processed.`);
+    } catch (error: any) {
+      console.error('Upload error:', error);
+      Alert.alert('Error', error.message || 'Failed to upload note');
     } finally {
       setUploading(false);
     }
   };
 
   return (
-    <button onClick={handleUpload} disabled={uploading}>
-      {uploading ? 'Uploading...' : 'Upload Note'}
-    </button>
+    <TouchableOpacity style={styles.button} onPress={handleUpload} disabled={uploading}>
+      {uploading
+        ? <ActivityIndicator size="small" color="#fff" />
+        : <Text style={styles.text}>Upload Note</Text>
+      }
+    </TouchableOpacity>
   );
 };
+
+const styles = StyleSheet.create({
+  button: {
+    backgroundColor: '#6366f1',
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  text: { color: '#fff', fontWeight: '600', fontSize: 15 },
+});
 
 export default UploadNote;

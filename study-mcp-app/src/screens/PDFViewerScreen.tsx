@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,20 +7,21 @@ import {
   ActivityIndicator,
   Alert,
   Dimensions,
-  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { AntDesign } from '@expo/vector-icons';
 import Pdf from 'react-native-pdf';
 import { apiClient } from '../config/api';
+import { supabase } from '../lib/supabase';
 
-const { width, height } = Dimensions.get('window');
+const BASE_URL = 'https://api.hamzaammar.ca/api';
+const { width } = Dimensions.get('window');
 
 interface RouteParams {
   title: string;
   courseId: string;
-  fileUrl: string;  // relative D2L path or full URL
+  fileUrl: string;
 }
 
 export default function PDFViewerScreen() {
@@ -34,9 +35,18 @@ export default function PDFViewerScreen() {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [authHeader, setAuthHeader] = useState<string>('');
 
-  // Proxy URL through backend so auth cookies are applied
-  const proxyUrl = `${apiClient.defaults.baseURL}/d2l/courses/${courseId}/file?url=${encodeURIComponent(fileUrl)}`;
+  // Get auth token for PDF header
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.access_token) {
+        setAuthHeader(`Bearer ${session.access_token}`);
+      }
+    });
+  }, []);
+
+  const proxyUrl = `${BASE_URL}/d2l/courses/${courseId}/file?url=${encodeURIComponent(fileUrl)}`;
 
   const handleSaveToNotes = async () => {
     if (saved) return;
@@ -50,14 +60,14 @@ export default function PDFViewerScreen() {
           onPress: async () => {
             setSaving(true);
             try {
-              const res = await apiClient.post(`/d2l/courses/${courseId}/file/save`, {
-                fileUrl,
-                title,
-              });
+              const res = await apiClient.post<{ chunkCount: number }>(
+                `/d2l/courses/${courseId}/file/save`,
+                { fileUrl, title }
+              );
               setSaved(true);
               Alert.alert('Saved!', `"${title}" saved to Notes — ${res.data.chunkCount} chunks processed.`);
             } catch (e: any) {
-              Alert.alert('Error', e.response?.data?.error || e.message || 'Failed to save');
+              Alert.alert('Error', e.message || 'Failed to save');
             } finally {
               setSaving(false);
             }
@@ -107,36 +117,38 @@ export default function PDFViewerScreen() {
           </TouchableOpacity>
         </View>
       ) : (
-        <Pdf
-          source={{
-            uri: proxyUrl,
-            headers: {
-              Authorization: `Bearer ${apiClient.defaults.headers?.common?.['Authorization'] || ''}`,
-            },
-            cache: true,
-          }}
-          style={styles.pdf}
-          onLoadComplete={(pages) => {
-            setTotalPages(pages);
-            setLoading(false);
-          }}
-          onPageChanged={(p) => setPage(p)}
-          onError={(err) => {
-            console.error('[PDF] Error:', err);
-            setError(typeof err === 'string' ? err : 'Could not load this PDF');
-            setLoading(false);
-          }}
-          enablePaging={false}
-          horizontal={false}
-          fitPolicy={0}
-          trustAllCerts={false}
-          renderActivityIndicator={() => (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color="#6366f1" />
-              <Text style={styles.loadingText}>Loading PDF...</Text>
-            </View>
-          )}
-        />
+        // Only render PDF once we have the auth header
+        authHeader ? (
+          <Pdf
+            source={{
+              uri: proxyUrl,
+              headers: { Authorization: authHeader },
+              cache: true,
+            }}
+            style={styles.pdf}
+            onLoadComplete={(pages) => { setTotalPages(pages); setLoading(false); }}
+            onPageChanged={(p) => setPage(p)}
+            onError={(err) => {
+              console.error('[PDF] Error:', err);
+              setError(typeof err === 'string' ? err : 'Could not load this PDF');
+              setLoading(false);
+            }}
+            enablePaging={false}
+            horizontal={false}
+            fitPolicy={0}
+            trustAllCerts={false}
+            renderActivityIndicator={() => (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="large" color="#6366f1" />
+                <Text style={styles.loadingText}>Loading PDF...</Text>
+              </View>
+            )}
+          />
+        ) : (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#6366f1" />
+          </View>
+        )
       )}
     </SafeAreaView>
   );
@@ -145,40 +157,26 @@ export default function PDFViewerScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#1a1a2e' },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
-    gap: 8,
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 12, paddingVertical: 10,
+    backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#e2e8f0', gap: 8,
   },
   headerButton: {
     width: 36, height: 36, justifyContent: 'center', alignItems: 'center',
     borderRadius: 8, backgroundColor: '#f1f5f9',
   },
-  title: {
-    flex: 1, fontSize: 15, fontWeight: '600', color: '#1e293b',
-  },
+  title: { flex: 1, fontSize: 15, fontWeight: '600', color: '#1e293b' },
   saveButton: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
-    backgroundColor: '#6366f1', paddingHorizontal: 14, paddingVertical: 8,
-    borderRadius: 8,
+    backgroundColor: '#6366f1', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8,
   },
   saveButtonDone: { backgroundColor: '#10b981' },
   saveButtonLoading: { backgroundColor: '#94a3b8' },
   saveButtonText: { color: '#fff', fontWeight: '600', fontSize: 13 },
   pageBar: {
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    alignSelf: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 12,
-    marginVertical: 4,
-    position: 'absolute',
-    bottom: 24,
-    zIndex: 10,
+    backgroundColor: 'rgba(0,0,0,0.6)', alignSelf: 'center',
+    paddingHorizontal: 12, paddingVertical: 4, borderRadius: 12, marginVertical: 4,
+    position: 'absolute', bottom: 24, zIndex: 10,
   },
   pageText: { color: '#fff', fontSize: 13, fontWeight: '600' },
   pdf: { flex: 1, width, backgroundColor: '#1a1a2e' },

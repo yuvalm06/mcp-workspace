@@ -1,12 +1,12 @@
 import React, { useRef } from 'react';
 import { View, Alert } from 'react-native';
-import { WebView } from 'react-native-webview';
-import { supabase } from '../services/supabase';
+import { WebView, WebViewNavigation, WebViewMessageEvent } from 'react-native-webview';
+import { apiClient } from '../config/api';
 
 const D2LConnect = () => {
-  const webViewRef = useRef(null);
+  const webViewRef = useRef<WebView>(null);
 
-  const handleNavigationStateChange = async (navState) => {
+  const handleNavigationStateChange = (navState: WebViewNavigation) => {
     if (navState.url.includes('dashboard')) {
       const injectedJavaScript = `
         (function() {
@@ -20,21 +20,16 @@ const D2LConnect = () => {
           }
         })();
       `;
-      webViewRef.current.injectJavaScript(injectedJavaScript);
+      webViewRef.current?.injectJavaScript(injectedJavaScript);
     }
   };
 
-  const handleMessage = async (event) => {
+  const handleMessage = async (event: WebViewMessageEvent) => {
     const cookies = JSON.parse(event.nativeEvent.data);
     const host = new URL(event.nativeEvent.url).host;
 
     try {
-      await supabase.functions.invoke('study-logic', {
-        method: 'POST',
-        path: '/d2l/connect-cookie',
-        body: { cookies, host },
-        headers: { 'Content-Type': 'application/json' },
-      });
+      await apiClient.post('/d2l/connect-cookie', { cookies, host });
       Alert.alert('Success', 'D2L connected successfully!');
     } catch (error) {
       console.error('Failed to connect D2L:', error);
@@ -46,7 +41,7 @@ const D2LConnect = () => {
     <View style={{ flex: 1 }}>
       <WebView
         ref={webViewRef}
-        source={{ uri: 'https://your-school-portal-url' }}
+        source={{ uri: 'https://learn.uwaterloo.ca' }}
         onNavigationStateChange={handleNavigationStateChange}
         onMessage={handleMessage}
         javaScriptEnabled

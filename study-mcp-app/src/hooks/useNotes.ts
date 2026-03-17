@@ -1,8 +1,17 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../services/supabase';
-import { Database } from '@/types/supabase';
 
-type Note = Database['public']['Tables']['notes']['Row'];
+export interface Note {
+  id: string;
+  user_id: string;
+  title: string | null;
+  content: string | null;
+  s3_key: string | null;
+  course_id: string | null;
+  status: string | null;
+  page_count: number | null;
+  created_at: string;
+}
 
 export const useNotes = () => {
   const [notes, setNotes] = useState<Note[]>([]);
@@ -15,28 +24,27 @@ export const useNotes = () => {
       if (error) {
         console.error('Error fetching notes:', error);
       } else {
-        setNotes(data);
+        setNotes(data as Note[]);
       }
       setLoading(false);
     };
 
     fetchNotes();
 
-    const subscription = supabase
-      .from('notes')
-      .on('INSERT', (payload) => setNotes((prev) => [...prev, payload.new]))
-      .on('UPDATE', (payload) =>
-        setNotes((prev) =>
-          prev.map((note) => (note.id === payload.new.id ? payload.new : note))
-        )
-      )
-      .on('DELETE', (payload) =>
-        setNotes((prev) => prev.filter((note) => note.id !== payload.old.id))
-      )
+    // Supabase v2 realtime API
+    const channel = supabase
+      .channel('notes-changes')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notes' },
+        (payload) => setNotes((prev) => [...prev, payload.new as Note]))
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'notes' },
+        (payload) => setNotes((prev) =>
+          prev.map((note) => (note.id === (payload.new as Note).id ? payload.new as Note : note))))
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'notes' },
+        (payload) => setNotes((prev) => prev.filter((note) => note.id !== (payload.old as Note).id)))
       .subscribe();
 
     return () => {
-      supabase.removeSubscription(subscription);
+      supabase.removeChannel(channel);
     };
   }, []);
 
