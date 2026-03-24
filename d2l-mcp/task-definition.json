@@ -8,16 +8,6 @@
   "memory": "2048",
   "executionRoleArn": "arn:aws:iam::051140201449:role/ecsTaskExecutionRole",
   "taskRoleArn": "arn:aws:iam::051140201449:role/ecsTaskRole",
-  "volumes": [
-    {
-      "name": "d2l-sessions",
-      "efsVolumeConfiguration": {
-        "fileSystemId": "fs-0af2ff4ec8b550247",
-        "rootDirectory": "/sessions",
-        "transitEncryption": "ENABLED"
-      }
-    }
-  ],
   "containerDefinitions": [
     {
       "name": "backend",
@@ -32,11 +22,91 @@
           "protocol": "tcp"
         }
       ],
-      "mountPoints": [
+      "environment": [
         {
-          "sourceVolume": "d2l-sessions",
-          "containerPath": "/sessions",
-          "readOnly": false
+          "name": "MCP_TRANSPORT",
+          "value": "http"
+        },
+        {
+          "name": "MCP_PORT",
+          "value": "3000"
+        },
+        {
+          "name": "NODE_ENV",
+          "value": "production"
+        },
+        {
+          "name": "SESSIONS_PATH",
+          "value": "/tmp/sessions"
+        },
+        {
+          "name": "API_HOST",
+          "value": "api.hamzaammar.ca"
+        }
+      ],
+      "secrets": [
+        {
+          "name": "SUPABASE_URL",
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:051140201449:secret:study-mcp/supabase-url-aL6yTm"
+        },
+        {
+          "name": "SUPABASE_SERVICE_ROLE_KEY",
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:051140201449:secret:study-mcp/supabase-key-RHCXal"
+        },
+        {
+          "name": "COGNITO_USER_POOL_ID",
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:051140201449:secret:study-mcp/cognito-pool-id-ikfCtk"
+        },
+        {
+          "name": "COGNITO_CLIENT_ID",
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:051140201449:secret:study-mcp/cognito-client-id-uUgSsp"
+        },
+        {
+          "name": "S3_BUCKET",
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:051140201449:secret:study-mcp/s3-bucket-KxRfoW"
+        },
+        {
+          "name": "AWS_REGION",
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:051140201449:secret:study-mcp/aws-region-e14xXT"
+        },
+        {
+          "name": "OPENAI_API_KEY",
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:051140201449:secret:study-mcp/openai-key-iq9IEH"
+        },
+        {
+          "name": "D2L_HOST",
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:051140201449:secret:study-mcp/d2l-host-1plQQx"
+        },
+        {
+          "name": "SUPABASE_JWT_SECRET",
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:051140201449:secret:study-mcp/supabase-jwt-secret-kXQTMN"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/study-mcp-backend",
+          "awslogs-region": "us-east-1",
+          "awslogs-stream-prefix": "ecs"
+        }
+      },
+      "essential": true
+    }
+  ]
+}
+
+  "containerDefinitions": [
+    {
+      "name": "backend",
+      "image": "051140201449.dkr.ecr.us-east-1.amazonaws.com/study-mcp-backend:latest",
+      "portMappings": [
+        {
+          "containerPort": 3000,
+          "protocol": "tcp"
+        },
+        {
+          "containerPort": 6080,
+          "protocol": "tcp"
         }
       ],
       "environment": [
