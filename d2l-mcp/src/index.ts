@@ -25,6 +25,9 @@ import { PiazzaTools } from "./study/src/piazza.js";
 import { getUserId } from "./utils/userContext.js";
 import { authMiddleware } from "./api/auth.js";
 import apiRoutes from "./api/routes.js";
+import d2lAuthRoutes from "./api/d2lAuthRoutes.js";
+import { BrowserSessionManager } from "./browser/BrowserSessionManager.js";
+import { fileURLToPath } from "url";
 
 function createServer(): McpServer {
   console.error("[INIT] createServer() called - starting MCP server initialization");
@@ -420,6 +423,15 @@ async function main() {
     // Health check (no auth) for ALB / load balancers
     app.get("/health", (_req, res) => res.json({ ok: true }));
 
+    // Onboarding page (no auth)
+    const __dirname = path.dirname(fileURLToPath(import.meta.url));
+    app.get("/onboard", (_req, res) => {
+      res.sendFile(path.join(__dirname, "public", "onboard.html"));
+    });
+
+    // D2L auth routes (browser streaming)
+    app.use("/", d2lAuthRoutes);
+
     // REST API (app-first): /api/notes, /api/search, /api/dashboard
     app.use("/api", authMiddleware, apiRoutes);
 
@@ -748,24 +760,20 @@ async function main() {
     });
 
     // Handle server shutdown
-    process.on("SIGINT", async () => {
+    const shutdown = async () => {
       console.error("Shutting down server...");
-      // Close all active transports to properly clean up resources
       for (const sessionId in transports) {
         try {
-          console.error(`Closing transport for session ${sessionId}`);
           await transports[sessionId].close();
           delete transports[sessionId];
-        } catch (error) {
-          console.error(
-            `Error closing transport for session ${sessionId}:`,
-            error
-          );
-        }
+        } catch {}
       }
+      await BrowserSessionManager.closeAll();
       console.error("Server shutdown complete");
       process.exit(0);
-    });
+    };
+    process.on("SIGINT", shutdown);
+    process.on("SIGTERM", shutdown);
   } else {
     console.error(
       `Invalid MCP_TRANSPORT value: ${transportType}. Must be 'stdio', 'http', or 'https'`

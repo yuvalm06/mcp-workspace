@@ -1,11 +1,23 @@
 {
   "family": "study-mcp-backend",
   "networkMode": "awsvpc",
-  "requiresCompatibilities": ["FARGATE"],
-  "cpu": "256",
-  "memory": "512",
+  "requiresCompatibilities": [
+    "FARGATE"
+  ],
+  "cpu": "1024",
+  "memory": "2048",
   "executionRoleArn": "arn:aws:iam::051140201449:role/ecsTaskExecutionRole",
   "taskRoleArn": "arn:aws:iam::051140201449:role/ecsTaskRole",
+  "volumes": [
+    {
+      "name": "d2l-sessions",
+      "efsVolumeConfiguration": {
+        "fileSystemId": "REPLACE_WITH_EFS_ID",
+        "rootDirectory": "/sessions",
+        "transitEncryption": "ENABLED"
+      }
+    }
+  ],
   "containerDefinitions": [
     {
       "name": "backend",
@@ -14,6 +26,17 @@
         {
           "containerPort": 3000,
           "protocol": "tcp"
+        },
+        {
+          "containerPort": 6080,
+          "protocol": "tcp"
+        }
+      ],
+      "mountPoints": [
+        {
+          "sourceVolume": "d2l-sessions",
+          "containerPath": "/sessions",
+          "readOnly": false
         }
       ],
       "environment": [
@@ -28,6 +51,14 @@
         {
           "name": "NODE_ENV",
           "value": "production"
+        },
+        {
+          "name": "SESSIONS_PATH",
+          "value": "/sessions"
+        },
+        {
+          "name": "API_HOST",
+          "value": "api.hamzaammar.ca"
         }
       ],
       "secrets": [
@@ -62,18 +93,6 @@
         {
           "name": "D2L_HOST",
           "valueFrom": "arn:aws:secretsmanager:us-east-1:051140201449:secret:study-mcp/d2l-host-1plQQx"
-        },
-        {
-          "name": "D2L_USERNAME",
-          "valueFrom": "arn:aws:secretsmanager:us-east-1:051140201449:secret:study-mcp/d2l-username-KfQFvB"
-        },
-        {
-          "name": "D2L_PASSWORD",
-          "valueFrom": "arn:aws:secretsmanager:us-east-1:051140201449:secret:study-mcp/d2l-password-abTz46"
-        },
-        {
-          "name": "D2L_TOKEN",
-          "valueFrom": "arn:aws:secretsmanager:us-east-1:051140201449:secret:study-mcp/d2l-token-aYbbVr"
         },
         {
           "name": "SUPABASE_JWT_SECRET",

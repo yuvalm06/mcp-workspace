@@ -1,48 +1,69 @@
 FROM node:20-alpine
 
-# Install Playwright system dependencies for Alpine
+# Install system dependencies for headless browser + VNC streaming
 RUN apk add --no-cache \
+    # Chromium
     chromium \
-    chromium-chromedriver \
     nss \
     freetype \
     freetype-dev \
     harfbuzz \
     ca-certificates \
     ttf-freefont \
-    udev \
     ttf-opensans \
-    bash \
     libstdc++ \
     libgcc \
+    # Virtual display
     xvfb \
-    dbus
+    dbus \
+    udev \
+    # VNC server
+    x11vnc \
+    # Python for websockify
+    python3 \
+    py3-pip \
+    py3-numpy \
+    # noVNC dependencies
+    bash \
+    wget \
+    git \
+    # Process management
+    supervisor
 
-# Set environment variables for headless operation
+# Install websockify via pip
+RUN pip3 install --break-system-packages websockify
+
+# Install noVNC
+RUN mkdir -p /usr/share/novnc && \
+    wget -q https://github.com/novnc/noVNC/archive/refs/tags/v1.4.0.tar.gz -O /tmp/novnc.tar.gz && \
+    tar -xzf /tmp/novnc.tar.gz -C /tmp && \
+    cp -r /tmp/noVNC-1.4.0/* /usr/share/novnc/ && \
+    rm -rf /tmp/novnc.tar.gz /tmp/noVNC-1.4.0
+
+# Set environment variables
 ENV DISPLAY=:99
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser
-
-WORKDIR /app
-
-# Copy package files
-COPY package*.json ./
-
-# Install all dependencies (including devDependencies for Playwright)
-# Use Alpine's chromium, but also install Playwright's for fallback
-RUN npm ci && \
-    npx playwright install chromium-headless-shell --with-deps || true
-
-# Remove devDependencies to reduce image size (but keep Playwright binaries)
-# Note: We skip install-deps because we already installed Alpine packages manually above
-RUN npm prune --production
-
-COPY dist ./dist
-COPY scripts ./scripts
-
+ENV SESSIONS_PATH=/sessions
 ENV NODE_ENV=production
 ENV MCP_TRANSPORT=http
 
-EXPOSE 3000
+WORKDIR /app
 
-CMD ["npm", "start"]
+# Copy package files and install dependencies
+COPY package*.json ./
+RUN npm ci && npm prune --production
+
+# Copy built app
+COPY dist ./dist
+COPY scripts ./scripts
+COPY src/public ./dist/public
+
+# Create sessions directory (will be overridden by EFS mount in ECS)
+RUN mkdir -p /sessions
+
+EXPOSE 3000
+# noVNC WebSocket ports (6080-6129 for up to 50 concurrent sessions)
+EXPOSE 6080-6129
+
+CMD ["node", "dist/index.js"]
