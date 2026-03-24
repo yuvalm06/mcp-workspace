@@ -29,7 +29,7 @@
   "scripts": {
     "mcp:launch": "npm run auth && npm start",
     "mcp:bridge": "node scripts/mcp_stdio_bridge.mjs",
-    "build": "tsc && cp -r src/public dist/public",
+    "build": "tsc && rm -rf dist/public && cp -r src/public dist/public",
     "start": "npm run auth && node dist/index.js",
     "dev": "tsc && cp -r src/public dist/public && node dist/index.js",
     "auth": "node dist/auth-cli.js",
