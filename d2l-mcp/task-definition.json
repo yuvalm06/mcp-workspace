@@ -12,7 +12,7 @@
     {
       "name": "d2l-sessions",
       "efsVolumeConfiguration": {
-        "fileSystemId": "REPLACE_WITH_EFS_ID",
+        "fileSystemId": "fs-0af2ff4ec8b550247",
         "rootDirectory": "/sessions",
         "transitEncryption": "ENABLED"
       }
