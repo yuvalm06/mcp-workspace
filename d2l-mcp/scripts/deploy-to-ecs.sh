@@ -9,7 +9,7 @@ ECR_GATEWAY="${ECR_REGISTRY}/study-mcp-gateway"
 CLUSTER="study-mcp-cluster"
 SERVICE="study-mcp-backend"
 REGION="us-east-1"
-AWS="/workspace/aws-bin/aws"
+AWS="aws"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="${SCRIPT_DIR}/.."
