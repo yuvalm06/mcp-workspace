@@ -179,7 +179,7 @@ export class BrowserSessionManager {
 
     BrowserSessionManager._watchForLogin(sessionId, userId, d2lHost, page, context);
 
-    const vncUrl = `https://${process.env.API_HOST || "api.hamzaammar.ca"}/vnc/${sessionId}/vnc.html?autoconnect=true&reconnect=true`;
+    const vncUrl = `https://${process.env.API_HOST || "api.hamzaammar.ca"}/vnc/${sessionId}/vnc.html?autoconnect=true&reconnect=true&path=vnc/${sessionId}/websockify`;
 
     const session: BrowserSession = {
       sessionId, userId, d2lHost, vncUrl,
