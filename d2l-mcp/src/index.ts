@@ -5,6 +5,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import express from "express";
 import cors from "cors";
+import { createProxyMiddleware } from "http-proxy-middleware";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -814,7 +815,6 @@ async function main() {
         const sessionId = match[1];
         const session = BrowserSessionManager.getSession(sessionId);
         if (session) {
-          const { createProxyMiddleware } = require("http-proxy-middleware");
           const wsProxy = createProxyMiddleware({
             target: `http://localhost:${session.wsPort}`,
             ws: true,
