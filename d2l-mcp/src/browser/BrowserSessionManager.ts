@@ -336,8 +336,11 @@ export class BrowserSessionManager {
     releasePort(session.vncPort);
     releasePort(session.wsPort);
 
-    activeSessions.delete(sessionId);
-    userSessionMap.delete(session.userId);
+    // Keep session in map for 60s so status poll can see final state, then clean up
+    setTimeout(() => {
+      activeSessions.delete(sessionId);
+      userSessionMap.delete(session.userId);
+    }, 60_000);
 
     console.error(`[VNC] Closed session ${sessionId} for user ${session.userId}`);
   }
