@@ -514,6 +514,12 @@
           return;
         }
         token = data.token;
+        if (!token) {
+          showAlert('Sign in succeeded but no token was returned. Please try again.');
+          btn.disabled = false;
+          btn.textContent = mode === 'signin' ? 'Sign In' : 'Create Account';
+          return;
+        }
         document.getElementById('stepAuth').classList.add('hidden');
         document.getElementById('stepD2L').classList.remove('hidden');
       } catch (e) {
