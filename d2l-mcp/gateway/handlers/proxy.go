@@ -9,6 +9,8 @@ import (
 	"net/url"
 	"os"
 	"strings"
+
+	"github.com/hamzakammar/horizon-gateway/middleware"
 )
 
 // NewProxy creates a reverse-proxy handler that forwards all requests to the
@@ -38,6 +40,12 @@ func NewProxy() http.HandlerFunc {
 		// Forward the original host so the Node app can build correct URLs.
 		r.Header.Set("X-Forwarded-Host", r.Host)
 		r.Header.Set("X-Forwarded-Proto", "https")
+
+		// Inject authenticated user ID so Node can scope requests per-user.
+		if userID, ok := r.Context().Value(middleware.UserIDKey).(string); ok && userID != "" {
+			r.Header.Set("X-User-Id", userID)
+		}
+
 		proxy.ServeHTTP(w, r)
 	}
 }

@@ -23,7 +23,7 @@ import { PlanningTools } from "./study/src/planning.js";
 import { NotesTools } from "./study/src/notes.js";
 import { SyncTools } from "./study/src/sync.js";
 import { PiazzaTools } from "./study/src/piazza.js";
-import { getUserId } from "./utils/userContext.js";
+import { getUserId, runWithUserId } from "./utils/userContext.js";
 import { embedText } from "./rag/embeddings.js";
 import { semanticSearch } from "./rag/vectorStore.js";
 import { authMiddleware } from "./api/auth.js";
@@ -528,6 +528,11 @@ async function main() {
         res.status(401).json({ error: "Unauthorized" });
         return;
       }
+
+      // Extract userId from X-User-Id header (injected by Go gateway after JWT verification)
+      const requestUserId = (req.headers["x-user-id"] as string) || "legacy";
+
+      return runWithUserId(requestUserId, async () => {
       const requestStartTime = Date.now();
       const sessionId = req.headers["mcp-session-id"] as string | undefined;
       const requestMethod = req.body?.method || "unknown";
@@ -699,6 +704,7 @@ async function main() {
           });
         }
       }
+      }); // end runWithUserId
     };
 
     app.post("/mcp", mcpPostHandler);
