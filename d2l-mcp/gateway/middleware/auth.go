@@ -116,8 +116,12 @@ func isPublicRoute(path string) bool {
 	if publicRoutes[path] {
 		return true
 	}
-	// Also allow VNC static assets (noVNC html/js served without auth)
-	if strings.HasPrefix(path, "/vnc/") {
+	// VNC static assets and websockify (noVNC requests these without auth headers)
+	if strings.HasPrefix(path, "/vnc/") || path == "/websockify" {
+		return true
+	}
+	// D2L status polling — sessionId is the secret, no JWT needed
+	if strings.HasPrefix(path, "/auth/d2l/status/") {
 		return true
 	}
 	return false
