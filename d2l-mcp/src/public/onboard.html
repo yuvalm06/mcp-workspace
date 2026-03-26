@@ -919,7 +919,7 @@
             <span style="color:var(--muted);font-size:11px">${n.status === 'ready' ? 'Ready' : n.status}</span>
             <button onclick="deleteNote('${n.id}', this)" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:14px;padding:0;line-height:1" title="Delete">×</button>
           </div>`).join('');
-      } catch (e: any) {
+      } catch (e) {
         showAlert('uploadAlertBox', `Failed to load notes: ${e.message}`);
       }
     }
