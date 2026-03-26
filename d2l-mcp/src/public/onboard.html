@@ -515,9 +515,28 @@
 
       <div id="d2lAlertBox" class="hidden"></div>
 
-      <div class="field" style="margin-bottom:20px">
+      <div class="field">
         <label>University D2L host</label>
         <input type="text" id="d2lHost" value="learn.uwaterloo.ca" />
+      </div>
+
+      <!-- Credentials for auto re-login -->
+      <div style="margin-bottom:20px">
+        <button type="button" onclick="toggleCreds()" style="background:none;border:none;color:var(--muted);font-size:12.5px;font-family:inherit;cursor:pointer;padding:4px 0;display:flex;align-items:center;gap:6px">
+          <svg id="credsChevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="transition:transform 0.15s"><polyline points="9 18 15 12 9 6"/></svg>
+          Save credentials for auto re-login (recommended)
+        </button>
+        <div id="credsFields" class="hidden" style="margin-top:12px;display:flex;flex-direction:column;gap:10px">
+          <div class="field" style="margin-bottom:0">
+            <label>WatIAM username</label>
+            <input type="text" id="d2lUsername" placeholder="watiam" autocomplete="username" />
+          </div>
+          <div class="field" style="margin-bottom:0">
+            <label>Password</label>
+            <input type="password" id="d2lPassword" placeholder="••••••••" autocomplete="current-password" />
+          </div>
+          <p style="font-size:11.5px;color:var(--muted);line-height:1.5">Stored securely. Used only to refresh your session when Duo cookies expire — you'll still need to approve Duo periodically.</p>
+        </div>
       </div>
 
       <button class="btn btn-primary" id="connectBtn" onclick="startD2L()">Open D2L login</button>
@@ -562,7 +581,29 @@
       </div>
     </div>
 
-    <!-- ── Step 3: Success ──────────────────────────────────────────── -->
+    <!-- ── Step 2.5: Piazza ─────────────────────────────────────────── -->
+    <div id="stepPiazza" class="card hidden">
+      <div class="card-head">
+        <h2>Connect Piazza <span style="font-size:12px;color:var(--muted);font-weight:400">(optional)</span></h2>
+        <p>Search and read Piazza posts from your courses.</p>
+      </div>
+
+      <div id="piazzaAlertBox" class="hidden"></div>
+
+      <div class="field">
+        <label>Piazza email</label>
+        <input type="email" id="piazzaEmail" placeholder="you@university.ca" autocomplete="email" />
+      </div>
+      <div class="field" style="margin-bottom:20px">
+        <label>Password</label>
+        <input type="password" id="piazzaPassword" placeholder="••••••••" autocomplete="current-password" />
+      </div>
+
+      <button class="btn btn-primary" id="piazzaBtn" onclick="connectPiazza()">Connect Piazza</button>
+      <button class="btn btn-ghost" style="margin-top:8px" onclick="skipPiazza()">Skip for now</button>
+    </div>
+
+    <!-- ── Step 3: Success + Notes ──────────────────────────────────── -->
     <div id="stepSuccess" class="card hidden">
       <div class="success-header">
         <div class="success-icon">🎉</div>
@@ -598,6 +639,31 @@
 
       <div class="divider"></div>
 
+      <!-- Notes upload (persistent) -->
+      <div class="card-head" style="margin-bottom:12px">
+        <h2 style="font-size:14px">Course Notes</h2>
+        <p>Upload PDFs to enable semantic search across your notes.</p>
+      </div>
+
+      <div id="uploadAlertBox" class="hidden" style="margin-bottom:12px"></div>
+
+      <div id="dropZone" onclick="document.getElementById('fileInput').click()"
+        style="border:1.5px dashed var(--border-hi);border-radius:var(--radius);padding:20px;text-align:center;cursor:pointer;transition:border-color 0.15s,background 0.15s"
+        ondragover="event.preventDefault();this.style.borderColor='var(--accent)';this.style.background='rgba(99,102,241,0.05)'"
+        ondragleave="this.style.borderColor='';this.style.background=''"
+        ondrop="handleDrop(event)">
+        <div style="font-size:22px;margin-bottom:6px">📄</div>
+        <div style="font-size:13px;font-weight:500;margin-bottom:3px">Drop PDFs here or click to browse</div>
+        <div style="font-size:11.5px;color:var(--muted)">PDF only · max 50MB per file</div>
+        <input type="file" id="fileInput" accept=".pdf" multiple style="display:none" onchange="handleFiles(this.files)" />
+      </div>
+
+      <div id="uploadQueue" style="margin-top:10px;display:flex;flex-direction:column;gap:6px"></div>
+
+      <div id="notesList" style="margin-top:14px;display:flex;flex-direction:column;gap:6px"></div>
+
+      <div class="divider"></div>
+
       <button class="btn btn-ghost" onclick="reset()">Connect another account</button>
     </div>
 
@@ -610,7 +676,291 @@
     let pollInterval = null;
     let sessionId = null;
 
+    // ── Helpers ────────────────────────────────────────────────────────
+    function showAlert(id, msg, type = 'error') {
+      const box = document.getElementById(id);
+      box.className = `alert alert-${type}`;
+      box.innerHTML = `<span>${type === 'error' ? '⚠' : 'ℹ'}</span> ${msg}`;
+      box.classList.remove('hidden');
+    }
+    function hideAlert(id) { document.getElementById(id).classList.add('hidden'); }
+
     function switchTab(t) {
+      mode = t;
+      document.getElementById('tabSignin').classList.toggle('active', t === 'signin');
+      document.getElementById('tabSignup').classList.toggle('active', t === 'signup');
+      document.getElementById('authBtn').textContent = t === 'signin' ? 'Sign in' : 'Create account';
+      document.getElementById('switchText').textContent = t === 'signin' ? "Don't have an account?" : 'Already have an account?';
+      const switchBtn = document.getElementById('switchBtn');
+      switchBtn.textContent = t === 'signin' ? 'Create one' : 'Sign in';
+      switchBtn.onclick = () => switchTab(t === 'signin' ? 'signup' : 'signin');
+      hideAlert('alertBox');
+    }
+
+    function toggleCreds() {
+      const fields = document.getElementById('credsFields');
+      const chevron = document.getElementById('credsChevron');
+      const open = !fields.classList.contains('hidden');
+      fields.classList.toggle('hidden', open);
+      chevron.style.transform = open ? '' : 'rotate(90deg)';
+    }
+
+    // ── Step 1: Auth ───────────────────────────────────────────────────
+    async function handleAuth() {
+      const email = document.getElementById('email').value.trim();
+      const password = document.getElementById('password').value;
+      if (!email || !password) { showAlert('alertBox', 'Please enter your email and password.'); return; }
+
+      const btn = document.getElementById('authBtn');
+      btn.disabled = true;
+      btn.innerHTML = `<span class="spin"></span>${mode === 'signin' ? 'Signing in…' : 'Creating account…'}`;
+      hideAlert('alertBox');
+
+      try {
+        const res = await fetch(`${API}/auth/${mode === 'signin' ? 'signin' : 'signup'}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Authentication failed.');
+        if (data.needsConfirmation) {
+          showAlert('alertBox', 'Check your email to confirm your account, then sign in.', 'info');
+          switchTab('signin');
+          btn.disabled = false; btn.textContent = 'Sign in';
+          return;
+        }
+        token = data.token;
+        if (!token) throw new Error('No token returned — please try again.');
+        document.getElementById('stepAuth').classList.add('hidden');
+        document.getElementById('stepD2L').classList.remove('hidden');
+      } catch (e) {
+        showAlert('alertBox', e.message);
+        btn.disabled = false;
+        btn.textContent = mode === 'signin' ? 'Sign in' : 'Create account';
+      }
+    }
+
+    // ── Step 2: D2L ────────────────────────────────────────────────────
+    async function startD2L() {
+      const d2lHost = document.getElementById('d2lHost').value.trim();
+      const username = document.getElementById('d2lUsername').value.trim();
+      const password = document.getElementById('d2lPassword').value;
+      const btn = document.getElementById('connectBtn');
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spin"></span>Starting session…';
+      hideAlert('d2lAlertBox');
+
+      try {
+        // Save credentials if provided
+        if (username && password) {
+          await fetch(`${API}/api/d2l/save-credentials`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({ host: d2lHost, username, password }),
+          });
+        }
+
+        const res = await fetch(`${API}/auth/d2l/start`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({ d2lHost }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to start session.');
+
+        sessionId = data.sessionId;
+        document.getElementById('vncLink').href = data.vncUrl;
+        document.getElementById('vncStep').classList.remove('hidden');
+        btn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.18-5.4"/></svg> Restart session`;
+        btn.disabled = false;
+        pollInterval = setInterval(pollStatus, 2500);
+      } catch (e) {
+        showAlert('d2lAlertBox', e.message);
+        btn.disabled = false;
+        btn.textContent = 'Open D2L login';
+      }
+    }
+
+    async function pollStatus() {
+      if (!sessionId) return;
+      try {
+        const res = await fetch(`${API}/auth/d2l/status/${sessionId}`);
+        const data = await res.json();
+        if (data.status === 'authenticated') {
+          clearInterval(pollInterval);
+          const d2 = document.getElementById('step2dot');
+          const d3 = document.getElementById('step3dot');
+          d2.className = 'step-dot done'; d2.textContent = '✓';
+          d3.className = 'step-dot done'; d3.textContent = '✓';
+          setTimeout(() => {
+            document.getElementById('stepD2L').classList.add('hidden');
+            document.getElementById('stepPiazza').classList.remove('hidden');
+          }, 700);
+        } else if (data.status === 'failed' || data.status === 'no_session') {
+          clearInterval(pollInterval);
+          showAlert('d2lAlertBox', 'Session expired or failed. Please try again.');
+        }
+      } catch {}
+    }
+
+    // ── Step 2.5: Piazza ───────────────────────────────────────────────
+    async function connectPiazza() {
+      const email = document.getElementById('piazzaEmail').value.trim();
+      const password = document.getElementById('piazzaPassword').value;
+      if (!email || !password) { showAlert('piazzaAlertBox', 'Enter your Piazza email and password.'); return; }
+
+      const btn = document.getElementById('piazzaBtn');
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spin"></span>Connecting…';
+      hideAlert('piazzaAlertBox');
+
+      try {
+        const res = await fetch(`${API}/api/piazza/connect`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({ email, password }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to connect Piazza.');
+        showSuccess();
+      } catch (e) {
+        showAlert('piazzaAlertBox', e.message);
+        btn.disabled = false;
+        btn.textContent = 'Connect Piazza';
+      }
+    }
+
+    function skipPiazza() { showSuccess(); }
+
+    // ── Step 3: Success + Notes ────────────────────────────────────────
+    function showSuccess() {
+      document.getElementById('stepPiazza').classList.add('hidden');
+      document.getElementById('stepSuccess').classList.remove('hidden');
+      document.getElementById('mcpUrl').textContent = `${API}/mcp`;
+      document.getElementById('bearerToken').textContent = token;
+      loadNotes();
+    }
+
+    // ── Notes upload ───────────────────────────────────────────────────
+    function handleDrop(e) {
+      e.preventDefault();
+      document.getElementById('dropZone').style.borderColor = '';
+      document.getElementById('dropZone').style.background = '';
+      handleFiles(e.dataTransfer.files);
+    }
+
+    function handleFiles(files) {
+      [...files].filter(f => f.type === 'application/pdf').forEach(uploadFile);
+    }
+
+    async function uploadFile(file) {
+      const queueEl = document.getElementById('uploadQueue');
+      const itemId = `upload-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const item = document.createElement('div');
+      item.id = itemId;
+      item.style.cssText = 'display:flex;align-items:center;gap:10px;padding:9px 12px;background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:var(--radius-sm);font-size:12.5px';
+      item.innerHTML = `<span class="spin" style="flex-shrink:0"></span><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${file.name}</span><span style="color:var(--muted)">0%</span>`;
+      queueEl.appendChild(item);
+
+      const setStatus = (text, color = 'var(--muted)') => {
+        item.querySelector('span:last-child').textContent = text;
+        item.querySelector('span:last-child').style.color = color;
+      };
+
+      try {
+        // 1. Get presigned URL
+        const presignRes = await fetch(`${API}/api/notes/presign-upload`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({ filename: file.name, contentType: 'application/pdf', size: file.size }),
+        });
+        const { uploadUrl, s3Key } = await presignRes.json();
+        if (!uploadUrl) throw new Error('Failed to get upload URL');
+
+        setStatus('Uploading…');
+
+        // 2. Upload to S3
+        const uploadRes = await fetch(uploadUrl, { method: 'PUT', body: file, headers: { 'Content-Type': 'application/pdf' } });
+        if (!uploadRes.ok) throw new Error('Upload failed');
+
+        setStatus('Processing…');
+
+        // 3. Trigger embedding
+        await fetch(`${API}/api/notes/process`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({ s3Key, title: file.name.replace(/\.pdf$/i, '') }),
+        });
+
+        item.querySelector('.spin').outerHTML = '<span style="color:#34d399;flex-shrink:0">✓</span>';
+        item.querySelector('.spin') // already replaced above — noop
+        setStatus('Done', '#34d399');
+        setTimeout(() => { item.remove(); loadNotes(); }, 2000);
+      } catch (e) {
+        item.querySelector('span:first-child').textContent = '✕';
+        item.querySelector('span:first-child').style.color = 'var(--danger)';
+        setStatus(e.message || 'Failed', 'var(--danger)');
+      }
+    }
+
+    async function loadNotes() {
+      try {
+        const res = await fetch(`${API}/api/notes`, { headers: { 'Authorization': `Bearer ${token}` } });
+        const { notes } = await res.json();
+        const el = document.getElementById('notesList');
+        if (!notes?.length) { el.innerHTML = ''; return; }
+        el.innerHTML = notes.map(n => `
+          <div style="display:flex;align-items:center;gap:10px;padding:9px 12px;background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:var(--radius-sm);font-size:12.5px">
+            <span style="color:var(--accent-hi);flex-shrink:0">📄</span>
+            <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${n.title}</span>
+            <span style="color:var(--muted);font-size:11px">${n.status === 'ready' ? 'Ready' : n.status}</span>
+            <button onclick="deleteNote('${n.id}', this)" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:14px;padding:0;line-height:1" title="Delete">×</button>
+          </div>`).join('');
+      } catch {}
+    }
+
+    async function deleteNote(id, btn) {
+      btn.disabled = true;
+      try {
+        await fetch(`${API}/api/notes/${id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
+        loadNotes();
+      } catch { btn.disabled = false; }
+    }
+
+    // ── Copy ───────────────────────────────────────────────────────────
+    function copyField(id, btn) {
+      const text = document.getElementById(id).textContent;
+      navigator.clipboard.writeText(text).then(() => {
+        const icon = btn.querySelector('.copy-icon');
+        const label = btn.querySelector('.copy-label');
+        icon.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
+        label.textContent = 'Copied!';
+        setTimeout(() => {
+          icon.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
+          label.textContent = id === 'mcpUrl' ? 'Copy URL' : 'Copy token';
+        }, 2000);
+      });
+    }
+
+    // ── Reset ──────────────────────────────────────────────────────────
+    function reset() {
+      token = null; sessionId = null;
+      if (pollInterval) clearInterval(pollInterval);
+      ['stepD2L','stepPiazza','stepSuccess','vncStep'].forEach(id => document.getElementById(id).classList.add('hidden'));
+      document.getElementById('stepAuth').classList.remove('hidden');
+      document.getElementById('authBtn').disabled = false;
+      document.getElementById('authBtn').textContent = 'Sign in';
+      switchTab('signin');
+    }
+
+    document.addEventListener('keydown', e => {
+      if (e.key !== 'Enter') return;
+      if (!document.getElementById('stepAuth').classList.contains('hidden')) handleAuth();
+    });
+  </script>
+</body>
+</html>
       mode = t;
       document.getElementById('tabSignin').classList.toggle('active', t === 'signin');
       document.getElementById('tabSignup').classList.toggle('active', t === 'signup');
