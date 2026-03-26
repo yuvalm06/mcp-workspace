@@ -51,10 +51,21 @@ export class D2LClient {
     };
 
     // Use cookies if available (Valence API pattern), otherwise try Bearer token
-    if (cookieString || token.includes("d2lSessionVal") || token.includes("d2lSecureSessionVal")) {
-      headers["Cookie"] = cookieString || token;
-    } else {
-      headers["Authorization"] = `Bearer ${token}`;
+    if (cookieString) {
+      headers["Cookie"] = cookieString;
+    } else if (token) {
+      // Try to parse stored VNC cookie token (JSON: { d2lSessionVal, d2lSecureSessionVal })
+      try {
+        const parsed = JSON.parse(token);
+        if (parsed.d2lSessionVal && parsed.d2lSecureSessionVal) {
+          headers["Cookie"] = `d2lSessionVal=${parsed.d2lSessionVal}; d2lSecureSessionVal=${parsed.d2lSecureSessionVal}`;
+        } else {
+          headers["Authorization"] = `Bearer ${token}`;
+        }
+      } catch {
+        // Plain token string — use as Bearer
+        headers["Authorization"] = `Bearer ${token}`;
+      }
     }
 
     const options: RequestInit = {
