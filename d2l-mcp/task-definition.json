@@ -101,6 +101,10 @@
           "valueFrom": "arn:aws:secretsmanager:us-east-1:051140201449:secret:study-mcp/supabase-key-RHCXal"
         },
         {
+          "name": "SUPABASE_ANON_KEY",
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:051140201449:secret:study-mcp/supabase-anon-key-4NVXCo"
+        },
+        {
           "name": "COGNITO_USER_POOL_ID",
           "valueFrom": "arn:aws:secretsmanager:us-east-1:051140201449:secret:study-mcp/cognito-pool-id-ikfCtk"
         },
