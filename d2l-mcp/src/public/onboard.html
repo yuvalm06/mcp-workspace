@@ -673,8 +673,46 @@
     const API = window.location.origin;
     let mode = 'signin';
     let token = null;
+    let refreshToken = null;
+    let tokenExpiresAt = null;
+    let refreshTimer = null;
     let pollInterval = null;
     let sessionId = null;
+
+    // ── Token refresh ──────────────────────────────────────────────────
+    function scheduleTokenRefresh(expiresAt) {
+      if (refreshTimer) clearTimeout(refreshTimer);
+      if (!expiresAt || !refreshToken) return;
+      // Refresh 5 minutes before expiry
+      const msUntilRefresh = (expiresAt * 1000) - Date.now() - (5 * 60 * 1000);
+      if (msUntilRefresh <= 0) { doTokenRefresh(); return; }
+      refreshTimer = setTimeout(doTokenRefresh, msUntilRefresh);
+    }
+
+    async function doTokenRefresh() {
+      if (!refreshToken) return;
+      try {
+        const res = await fetch(`${API}/auth/refresh`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refreshToken }),
+        });
+        const data = await res.json();
+        if (res.ok && data.token) {
+          token = data.token;
+          refreshToken = data.refreshToken;
+          tokenExpiresAt = data.expiresAt;
+          scheduleTokenRefresh(tokenExpiresAt);
+        }
+      } catch {}
+    }
+
+    function setSession(data) {
+      token = data.token;
+      refreshToken = data.refreshToken;
+      tokenExpiresAt = data.expiresAt;
+      scheduleTokenRefresh(tokenExpiresAt);
+    }
 
     // ── Helpers ────────────────────────────────────────────────────────
     function showAlert(id, msg, type = 'error') {
@@ -732,6 +770,7 @@
         }
         token = data.token;
         if (!token) throw new Error('No token returned — please try again.');
+        setSession(data);
         document.getElementById('stepAuth').classList.add('hidden');
         document.getElementById('stepD2L').classList.remove('hidden');
       } catch (e) {
