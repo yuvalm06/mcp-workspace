@@ -251,7 +251,7 @@ export async function getToken(userId?: string): Promise<string> {
   
   // Try to use Alpine's chromium if available, otherwise use Playwright's
   const chromiumPath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || 
-                       (isProduction ? '/usr/bin/chromium-browser' : undefined);
+                       (isProduction ? '/usr/bin/chromium' : undefined);
   
   let context;
   try {
