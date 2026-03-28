@@ -117,7 +117,7 @@ func isPublicRoute(path string) bool {
 	if publicRoutes[path] {
 		return true
 	}
-	// VNC static assets and websockify (noVNC requests these without auth headers)
+	// VNC static assets and websockify
 	if strings.HasPrefix(path, "/vnc/") || path == "/websockify" {
 		return true
 	}
@@ -154,8 +154,39 @@ func verifyHS256(tokenStr string) (string, error) {
 	return sub, nil
 }
 
-// Auth returns JWT validation middleware using Supabase JWKS (RS256) with
-// HS256 fallback for tokens issued without a kid header.
+// verifyWithJWKS verifies a token using a JWKS key.
+func verifyWithJWKS(tokenStr string, jwk *jwksKey) (string, error) {
+	pubKey, err := jwkToPublicKey(jwk)
+	if err != nil {
+		return "", fmt.Errorf("invalid signing key: %w", err)
+	}
+
+	token, err := jwt.Parse(tokenStr, func(t *jwt.Token) (interface{}, error) {
+		switch t.Method.(type) {
+		case *jwt.SigningMethodRSA:
+		case *jwt.SigningMethodECDSA:
+		default:
+			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
+		}
+		return pubKey, nil
+	})
+	if err != nil || !token.Valid {
+		return "", fmt.Errorf("invalid or expired token: %w", err)
+	}
+
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return "", fmt.Errorf("invalid claims")
+	}
+	sub, _ := claims["sub"].(string)
+	if sub == "" {
+		return "", fmt.Errorf("missing sub claim")
+	}
+	return sub, nil
+}
+
+// Auth returns JWT validation middleware using Supabase JWKS (ES256/RS256) with
+// HS256 fallback for tokens issued without a kid header or with an unknown kid.
 func Auth(jwksURL string) func(http.Handler) http.Handler {
 	c := initCache(jwksURL)
 	// Pre-fetch JWKS on startup (non-fatal if it fails)
@@ -190,7 +221,7 @@ func Auth(jwksURL string) func(http.Handler) http.Handler {
 			}
 			tokenStr := strings.TrimPrefix(authHeader, "Bearer ")
 
-			// Parse without verification first to get the kid header
+			// Parse without verification first to inspect header
 			unverified, _, err := jwt.NewParser().ParseUnverified(tokenStr, jwt.MapClaims{})
 			if err != nil {
 				http.Error(w, `{"error":"invalid token format"}`, http.StatusUnauthorized)
@@ -198,54 +229,37 @@ func Auth(jwksURL string) func(http.Handler) http.Handler {
 			}
 
 			kid, hasKid := unverified.Header["kid"].(string)
-
 			var sub string
 
 			if !hasKid || kid == "" {
-				// No kid — Supabase HS256 token. Verify with JWT secret.
+				// No kid — HS256 token. Verify with JWT secret.
 				sub, err = verifyHS256(tokenStr)
 				if err != nil {
-					fmt.Printf("[AUTH] HS256 verification failed: %v\n", err)
+					fmt.Printf("[AUTH] HS256 verification failed (no kid): %v\n", err)
 					http.Error(w, `{"error":"invalid or expired token"}`, http.StatusUnauthorized)
 					return
 				}
 			} else {
-				// Has kid — RS256/ES256 token. Verify with JWKS.
-				jwk, err := c.getKey(kid)
-				if err != nil {
-					http.Error(w, `{"error":"could not retrieve signing key"}`, http.StatusUnauthorized)
-					return
-				}
-
-				pubKey, err := jwkToPublicKey(jwk)
-				if err != nil {
-					http.Error(w, `{"error":"invalid signing key"}`, http.StatusUnauthorized)
-					return
-				}
-
-				token, err := jwt.Parse(tokenStr, func(t *jwt.Token) (interface{}, error) {
-					switch t.Method.(type) {
-					case *jwt.SigningMethodRSA:
-					case *jwt.SigningMethodECDSA:
-					default:
-						return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
+				// Has kid — try JWKS first.
+				jwk, jwkErr := c.getKey(kid)
+				if jwkErr != nil {
+					// kid not in JWKS — could be a rotated key or an HS256 token that
+					// happens to have a kid field. Try HS256 fallback.
+					fmt.Printf("[AUTH] kid=%q not in JWKS (%v), trying HS256 fallback\n", kid, jwkErr)
+					sub, err = verifyHS256(tokenStr)
+					if err != nil {
+						fmt.Printf("[AUTH] HS256 fallback failed for kid=%q: %v\n", kid, err)
+						http.Error(w, `{"error":"could not retrieve signing key"}`, http.StatusUnauthorized)
+						return
 					}
-					return pubKey, nil
-				})
-				if err != nil || !token.Valid {
-					http.Error(w, `{"error":"invalid or expired token"}`, http.StatusUnauthorized)
-					return
-				}
-
-				claims, ok := token.Claims.(jwt.MapClaims)
-				if !ok {
-					http.Error(w, `{"error":"invalid claims"}`, http.StatusUnauthorized)
-					return
-				}
-				sub, _ = claims["sub"].(string)
-				if sub == "" {
-					http.Error(w, `{"error":"token missing sub claim"}`, http.StatusUnauthorized)
-					return
+				} else {
+					// JWKS key found — verify with public key.
+					sub, err = verifyWithJWKS(tokenStr, jwk)
+					if err != nil {
+						fmt.Printf("[AUTH] JWKS verification failed for kid=%q: %v\n", kid, err)
+						http.Error(w, `{"error":"invalid or expired token"}`, http.StatusUnauthorized)
+						return
+					}
 				}
 			}
 
