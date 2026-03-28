@@ -283,16 +283,21 @@ func Auth(jwksURL string) func(http.Handler) http.Handler {
 					}
 				}
 			} else {
-				// Has kid — try JWKS first.
+				// Has kid — try exact JWKS match first.
 				jwk, jwkErr := c.getKey(kid)
 				if jwkErr != nil {
-					// kid not in JWKS — try HS256 fallback
-					fmt.Printf("[AUTH] kid=%q not in JWKS (%v), trying HS256 fallback\n", kid, jwkErr)
-					sub, err = verifyHS256(tokenStr)
+					// kid not in JWKS (key rotation) — try all available JWKS keys
+					fmt.Printf("[AUTH] kid=%q not in JWKS (%v), trying all JWKS keys\n", kid, jwkErr)
+					sub, err = verifyWithAllJWKSKeys(tokenStr, c)
 					if err != nil {
-						fmt.Printf("[AUTH] HS256 fallback failed for kid=%q: %v\n", kid, err)
-						http.Error(w, `{"error":"could not retrieve signing key"}`, http.StatusUnauthorized)
-						return
+						// Last resort: HS256
+						fmt.Printf("[AUTH] All JWKS keys failed for kid=%q (%v), trying HS256\n", kid, err)
+						sub, err = verifyHS256(tokenStr)
+						if err != nil {
+							fmt.Printf("[AUTH] All verification methods failed for kid=%q: %v\n", kid, err)
+							http.Error(w, `{"error":"could not retrieve signing key"}`, http.StatusUnauthorized)
+							return
+						}
 					}
 				} else {
 					// JWKS key found — verify with public key.
