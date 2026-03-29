@@ -625,7 +625,7 @@
       </div>
 
       <div class="url-box" style="margin-top:12px">
-        <div class="url-box-label">Bearer Token</div>
+        <div class="url-box-label">Bearer Token (long-lived, auto-renews)</div>
         <div class="url-value" id="bearerToken" style="font-size:11px; opacity:0.6; filter:blur(4px); transition:filter 0.2s; cursor:pointer; user-select:none" onclick="this.style.filter='none'; this.style.opacity='1'; this.style.cursor='text'" title="Click to reveal"></div>
         <button class="copy-btn" onclick="copyField('bearerToken', this)">
           <span class="copy-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></span>
@@ -633,7 +633,8 @@
         </button>
         <div class="poke-hint" style="margin-top:8px; padding-top:8px; border-top: 1px solid rgba(99,102,241,0.1)">
           Click the token to reveal it. Add as request header:<br>
-          <code>Authorization: Bearer &lt;token&gt;</code>
+          <code>Authorization: Bearer &lt;token&gt;</code><br>
+          <span style="color:var(--muted);font-size:11px">This is your refresh token — it auto-renews so you never need to update your config.</span>
         </div>
       </div>
 
@@ -877,7 +878,9 @@
       document.getElementById('stepPiazza').classList.add('hidden');
       document.getElementById('stepSuccess').classList.remove('hidden');
       document.getElementById('mcpUrl').textContent = `${API}/mcp`;
-      document.getElementById('bearerToken').textContent = token;
+      // Show refresh token — it's long-lived and the gateway auto-exchanges it.
+      // Access tokens expire in 1hr; refresh tokens stay valid as long as they're used.
+      document.getElementById('bearerToken').textContent = refreshToken || token;
       loadNotes();
     }
 
