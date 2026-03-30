@@ -172,27 +172,34 @@ async function attemptSilentRelogin(userId: string): Promise<string | null> {
 
   try {
     const page = await context.newPage();
-    await page.goto(`https://${creds.host}/d2l/home`, { timeout: 15000 });
-    const url = page.url();
 
-    // Duo/ADFS wall — cannot proceed headlessly
-    if (url.includes("adfs") || url.includes("login") || url.includes("saml")) {
-      console.error(`[AUTH] Silent re-login hit auth wall for user ${userId}: ${url}`);
-      return null;
-    }
-
-    // Try to fill credentials if on a login page
-    if (url.includes("login") || url.includes("signin")) {
-      await page.fill('input[type="text"], input[name="username"]', creds.username).catch(() => {});
-      await page.fill('input[type="password"]', creds.password).catch(() => {});
-      await page.keyboard.press("Enter");
-      await page.waitForURL(`**/${creds.host}/**`, { timeout: 10000 }).catch(() => {});
-    }
+    // Navigate and wait for final destination — UW SSO redirects through ADFS
+    // even with valid session cookies, so don't bail on intermediate URLs
+    await page.goto(`https://${creds.host}/d2l/home`, { timeout: 30000, waitUntil: 'networkidle' }).catch(() => {});
 
     const finalUrl = page.url();
-    if (finalUrl.includes("adfs") || finalUrl.includes("login")) {
-      console.error(`[AUTH] Silent re-login still on auth page for user ${userId}`);
+    console.error(`[AUTH] Silent re-login final URL for user ${userId}: ${finalUrl}`);
+
+    // If we landed on a Duo MFA page — cannot proceed headlessly
+    if (finalUrl.includes("duo") || finalUrl.includes("duosecurity")) {
+      console.error(`[AUTH] Silent re-login hit Duo wall for user ${userId}`);
       return null;
+    }
+
+    // If we're on a username/password form — try filling it
+    if (finalUrl.includes("adfs") || finalUrl.includes("login") || finalUrl.includes("saml")) {
+      console.error(`[AUTH] Silent re-login on auth page, attempting credential fill for user ${userId}`);
+      await page.fill('input[type="text"], input[name="UserName"], input[name="username"]', creds.username).catch(() => {});
+      await page.fill('input[type="password"], input[name="Password"], input[name="password"]', creds.password).catch(() => {});
+      await page.keyboard.press("Enter");
+      // Wait for redirect — if Duo comes up we can't proceed
+      await page.waitForURL('**', { timeout: 15000 }).catch(() => {});
+      const postLoginUrl = page.url();
+      console.error(`[AUTH] Post-credential URL for user ${userId}: ${postLoginUrl}`);
+      if (postLoginUrl.includes("duo") || postLoginUrl.includes("adfs") || postLoginUrl.includes("login")) {
+        console.error(`[AUTH] Still on auth/Duo page after credential fill for user ${userId}`);
+        return null;
+      }
     }
 
     // Extract D2L session cookies
@@ -241,7 +248,7 @@ export async function getToken(userId?: string): Promise<string> {
     if (userToken && userToken.token) {
       // Check if token is already aged (older than 20 hours)
       const tokenAge = Date.now() - (new Date(userToken.updated_at || 0).getTime());
-      const maxAge = 20 * 60 * 60 * 1000; // 20 hours
+      const maxAge = 23 * 60 * 60 * 1000; // 23 hours
       
       if (tokenAge > maxAge) {
         console.error(`[AUTH] Stored token for user ${userId} is too old (${Math.round(tokenAge / 3600000)}h), attempting silent re-login`);
@@ -467,7 +474,7 @@ async function captureToken(
         // Check if it's a cookie string (contains d2lSessionVal or d2lSecureSessionVal)
         if (storedToken.token.includes('d2lSessionVal') || storedToken.token.includes('d2lSecureSessionVal')) {
           const tokenAge = Date.now() - (new Date(storedToken.updated_at || 0).getTime());
-          const maxAge = 20 * 60 * 60 * 1000; // 20 hours
+          const maxAge = 23 * 60 * 60 * 1000; // 23 hours
           
           if (tokenAge < maxAge) {
             console.error(`[AUTH] Using stored cookies from database (age: ${Math.round(tokenAge / 3600000)}h)`);
