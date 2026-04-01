@@ -1,0 +1,14 @@
+{
+  "name": "mcp-workspace",
+  "private": true,
+  "scripts": {
+    "install:all": "npm --prefix d2l-mcp install",
+    "install-all": "npm --prefix d2l-mcp install",
+    "build-all": "npm --prefix d2l-mcp run build",
+    "start-all": "pm2 start ecosystem.config.cjs",
+    "start": "npm --prefix d2l-mcp start",
+    "mcp:launch": "npm --prefix d2l-mcp run mcp:launch",
+    "status": "pm2 status",
+    "sync-sessions": "rsync -avz ~/.d2l-session/ ec2-user@3.93.185.101:~/.d2l-session/ && rsync -avz ~/.piazza-session/ ec2-user@3.93.185.101:~/.piazza-session/"
+  }
+}
