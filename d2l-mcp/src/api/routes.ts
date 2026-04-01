@@ -2053,4 +2053,56 @@ router.post("/auth/logout", async (req: Request, res: Response) => {
   }
 });
 
+// ── API Key Management ──────────────────────────────────────────────────────
+import crypto from "crypto";
+
+/** POST /api/api-keys — generate a new API key for the authenticated user */
+router.post("/api-keys", async (req: Request, res: Response) => {
+  const userId = req.userId!;
+  const { name } = req.body || {};
+
+  const raw = "hzn_" + crypto.randomBytes(32).toString("hex");
+  const keyHash = crypto.createHash("sha256").update(raw).digest("hex");
+
+  const { error } = await supabase
+    .from("api_keys")
+    .insert({ user_id: userId, key_hash: keyHash, name: name || "default" });
+
+  if (error) {
+    res.status(500).json({ error: "Failed to create API key", details: error.message });
+    return;
+  }
+
+  // Return the raw key only once — it cannot be retrieved again
+  res.json({ key: raw, name: name || "default" });
+});
+
+/** GET /api/api-keys — list API keys (without revealing the raw key) */
+router.get("/api-keys", async (req: Request, res: Response) => {
+  const userId = req.userId!;
+  const { data, error } = await supabase
+    .from("api_keys")
+    .select("id, name, revoked, created_at")
+    .eq("user_id", userId);
+
+  if (error) {
+    res.status(500).json({ error: "Failed to list API keys" });
+    return;
+  }
+  res.json({ keys: data });
+});
+
+/** DELETE /api/api-keys/:id — revoke an API key */
+router.delete("/api-keys/:id", async (req: Request, res: Response) => {
+  const userId = req.userId!;
+  const { id } = req.params;
+  await supabase
+    .from("api_keys")
+    .update({ revoked: true })
+    .eq("id", id)
+    .eq("user_id", userId);
+
+  res.json({ status: "revoked" });
+});
+
 export default router;

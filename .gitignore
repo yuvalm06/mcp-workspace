@@ -2,6 +2,7 @@ node_modules/
 *.log
 .DS_Store
 .env
+.env.local
 .d2l-session/
 dist/
 *.tar.gz
@@ -9,8 +10,18 @@ logs/
 src/study/db/notes_map.json
 src/study/db/piazza_map.json
 .mcp-sessions.json
+*.bak
+
+# Claude Code local settings (may contain tokens)
+.claude/
+
+# Real task definition (contains AWS account IDs)
+task-definition.json
 
 # SSH / bastion keys (never commit)
 *.pem
 *.ppk
 study-mcp-bastion-key.pem
+
+# Setup agent (separate project)
+setup-agent-mac/

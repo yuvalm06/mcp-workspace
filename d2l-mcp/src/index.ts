@@ -27,11 +27,11 @@ import { getUserId, runWithUserId } from "./utils/userContext.js";
 import { embedText } from "./rag/embeddings.js";
 import { semanticSearch } from "./rag/vectorStore.js";
 import { authMiddleware } from "./api/auth.js";
+import { isDuoRequired } from "./auth.js";
 import apiRoutes from "./api/routes.js";
 import d2lAuthRoutes from "./api/d2lAuthRoutes.js";
 import publicAuthRoutes from "./api/publicAuthRoutes.js";
 import { BrowserSessionManager } from "./browser/BrowserSessionManager.js";
-import { startSessionRefreshScheduler } from "./jobs/sessionRefresher.js";
 import { fileURLToPath } from "url";
 
 function createServer(): McpServer {
@@ -57,6 +57,16 @@ function createServer(): McpServer {
         console.error(
           `[TOOL] Completed tool execution: ${toolName} (${elapsedTime}ms)`
         );
+        // Prepend Duo warning if re-auth is needed
+        const userId = getUserId();
+        if (userId && userId !== "legacy") {
+          const duoNeeded = await isDuoRequired(userId).catch(() => false);
+          if (duoNeeded) {
+            const host = process.env.API_HOST || "localhost:3000";
+            const warning = `⚠️ Your D2L session has expired and requires Duo re-authentication.\nPlease visit https://${host}/onboard to reconnect.\n\n---\n\n`;
+            return { content: [{ type: "text" as const, text: warning + result }] };
+          }
+        }
         return { content: [{ type: "text" as const, text: result }] };
       } catch (error) {
         const elapsedTime = Date.now() - startTime;
@@ -488,7 +498,7 @@ async function main() {
     const transports: Record<string, StreamableHTTPServerTransport> = {};
     
     // Session persistence
-    const SESSION_FILE = path.join(process.env.SESSIONS_PATH || '/sessions', '.mcp-sessions.json');
+    const SESSION_FILE = path.join(process.cwd(), '.mcp-sessions.json');
     const validSessionIds = new Set<string>();
     
     // Load persisted sessions on startup
@@ -812,9 +822,6 @@ async function main() {
     const httpServer = app.listen(port, () => {
       console.error(`D2L Brightspace MCP server running on HTTP port ${port}`);
       console.error(`Connect to: http://localhost:${port}/mcp`);
-
-      // Start background session refresh scheduler
-      startSessionRefreshScheduler();
     });
 
     // Forward WebSocket upgrade events to the VNC proxy middleware
@@ -853,6 +860,41 @@ async function main() {
     };
     process.on("SIGINT", shutdown);
     process.on("SIGTERM", shutdown);
+
+    // Daily D2L session health check — attempts silent re-login for all users,
+    // marks duo_required if it hits the Duo wall. Users see a warning on next tool call.
+    const runDailyHealthCheck = async () => {
+      console.error("[HEALTH] Running daily D2L session check");
+      try {
+        const { data: users } = await (await import("./utils/supabase.js")).supabase
+          .from("user_credentials")
+          .select("user_id, token, updated_at")
+          .eq("service", "d2l");
+
+        if (!users?.length) return;
+
+        for (const u of users) {
+          const tokenAge = Date.now() - new Date(u.updated_at || 0).getTime();
+          const maxAge = 20 * 60 * 60 * 1000; // 20 hours
+          if (tokenAge > maxAge) {
+            console.error(`[HEALTH] Token stale for user ${u.user_id}, attempting silent re-login`);
+            // getToken handles silent re-login + markDuoRequired internally
+            const { getToken } = await import("./auth.js");
+            await getToken(u.user_id).catch(() => {
+              console.error(`[HEALTH] Silent re-login failed for user ${u.user_id} — Duo required, user will see warning on next tool call`);
+            });
+          }
+        }
+      } catch (e) {
+        console.error("[HEALTH] Daily check error:", e);
+      }
+    };
+
+    // Run once at startup (after 5min delay), then every 24h
+    setTimeout(() => {
+      runDailyHealthCheck();
+      setInterval(runDailyHealthCheck, 24 * 60 * 60 * 1000);
+    }, 5 * 60 * 1000);
   } else {
     console.error(
       `Invalid MCP_TRANSPORT value: ${transportType}. Must be 'stdio', 'http', or 'https'`

@@ -2,8 +2,11 @@ package middleware
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"strings"
@@ -12,6 +15,56 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 )
+
+var httpClient = &http.Client{Timeout: 10 * time.Second}
+
+// isAPIKey returns true if the token looks like a Horizon API key.
+func isAPIKey(token string) bool {
+	return strings.HasPrefix(token, "hzn_")
+}
+
+// verifyAPIKey looks up a hashed API key in the api_keys table via Supabase REST API.
+func verifyAPIKey(key string) (string, error) {
+	hash := sha256.Sum256([]byte(key))
+	keyHash := hex.EncodeToString(hash[:])
+
+	supabaseURL := os.Getenv("SUPABASE_URL")
+	srkKey := os.Getenv("SUPABASE_SERVICE_ROLE_KEY")
+	if supabaseURL == "" || srkKey == "" {
+		return "", fmt.Errorf("SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY not set")
+	}
+
+	url := supabaseURL + "/rest/v1/api_keys?key_hash=eq." + keyHash + "&select=user_id,revoked"
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("apikey", srkKey)
+	req.Header.Set("Authorization", "Bearer "+srkKey)
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("api key lookup failed: %w", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("api key lookup failed (status %d): %s", resp.StatusCode, string(body))
+	}
+
+	var rows []struct {
+		UserID  string `json:"user_id"`
+		Revoked bool   `json:"revoked"`
+	}
+	if err := json.Unmarshal(body, &rows); err != nil || len(rows) == 0 {
+		return "", fmt.Errorf("invalid api key")
+	}
+	if rows[0].Revoked {
+		return "", fmt.Errorf("api key has been revoked")
+	}
+	return rows[0].UserID, nil
+}
 
 type contextKey string
 
@@ -188,6 +241,20 @@ func Auth(jwksURL string) func(http.Handler) http.Handler {
 				return
 			}
 			tokenStr := strings.TrimPrefix(authHeader, "Bearer ")
+
+			// Check for API key (hzn_ prefix) before JWT parsing
+			if isAPIKey(tokenStr) {
+				userID, err := verifyAPIKey(tokenStr)
+				if err != nil {
+					fmt.Printf("[AUTH] API key validation failed: %v\n", err)
+					http.Error(w, `{"error":"invalid or revoked api key"}`, http.StatusUnauthorized)
+					return
+				}
+				fmt.Printf("[AUTH] API key OK, userId=%s\n", userID)
+				ctx := context.WithValue(r.Context(), UserIDKey, userID)
+				next.ServeHTTP(w, r.WithContext(ctx))
+				return
+			}
 
 			// Parse without verification first to get the kid header
 			unverified, _, err := jwt.NewParser().ParseUnverified(tokenStr, jwt.MapClaims{})
