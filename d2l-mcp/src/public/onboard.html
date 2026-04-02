@@ -581,44 +581,62 @@
       <button class="btn btn-ghost" style="margin-top:8px" onclick="skipPiazza()">Skip for now</button>
     </div>
 
-    <!-- ── Step 3: Success + Notes ──────────────────────────────────── -->
+    <!-- ── Step 3: Dashboard ──────────────────────────────────────────── -->
     <div id="stepSuccess" class="card hidden">
       <div class="success-header">
-        <div class="success-icon">🎉</div>
-        <h2>You're all set</h2>
-        <p>D2L connected. Add the URL below to your MCP client.</p>
+        <div class="success-icon">⚡</div>
+        <h2>Horizon Dashboard</h2>
+        <p>Manage your connections and course notes.</p>
       </div>
 
-      <div class="url-box">
-        <div class="url-box-label">MCP Server URL</div>
-        <div class="url-value" id="mcpUrl"></div>
-        <button class="copy-btn" onclick="copyField('mcpUrl', this)">
-          <span class="copy-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></span>
-          <span class="copy-label">Copy URL</span>
-        </button>
-        <div class="poke-hint">
-          In Poke: <strong>Settings → MCP Servers → Add</strong><br>
-          Paste the URL above, then add the token below as a request header.
+      <!-- ── Connections ──────────────────────────────────────────── -->
+      <div class="card-head" style="margin-bottom:10px">
+        <h2 style="font-size:14px">Connections</h2>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:6px">
+        <!-- D2L row -->
+        <div id="d2lStatusRow" style="display:flex;align-items:center;gap:10px;padding:10px 13px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm)">
+          <span style="font-size:15px;flex-shrink:0">🎓</span>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:13px;font-weight:500">D2L / Brightspace</div>
+            <div id="d2lStatusText" style="font-size:11.5px;color:var(--muted)">Checking...</div>
+          </div>
+          <span id="d2lStatusDot" style="width:8px;height:8px;border-radius:50%;background:#d4d4d4;flex-shrink:0"></span>
+          <button id="d2lReconnectBtn" class="copy-btn" style="font-size:11.5px;padding:4px 10px;display:none" onclick="reconnectD2L()">Re-login</button>
+        </div>
+
+        <!-- Piazza row -->
+        <div id="piazzaStatusRow" style="display:flex;align-items:center;gap:10px;padding:10px 13px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm)">
+          <span style="font-size:15px;flex-shrink:0">💬</span>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:13px;font-weight:500">Piazza</div>
+            <div id="piazzaStatusText" style="font-size:11.5px;color:var(--muted)">Checking...</div>
+          </div>
+          <span id="piazzaStatusDot" style="width:8px;height:8px;border-radius:50%;background:#d4d4d4;flex-shrink:0"></span>
+          <button id="piazzaReconnectBtn" class="copy-btn" style="font-size:11.5px;padding:4px 10px;display:none" onclick="showPiazzaReconnect()">Connect</button>
         </div>
       </div>
 
-      <div class="url-box" style="margin-top:12px">
-        <div class="url-box-label">Bearer Token (long-lived, auto-renews)</div>
-        <div class="url-value" id="bearerToken" style="font-size:11px; opacity:0.6; filter:blur(4px); transition:filter 0.2s; cursor:pointer; user-select:none" onclick="this.style.filter='none'; this.style.opacity='1'; this.style.cursor='text'" title="Click to reveal"></div>
-        <button class="copy-btn" onclick="copyField('bearerToken', this)">
-          <span class="copy-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></span>
-          <span class="copy-label">Copy token</span>
-        </button>
-        <div class="poke-hint" style="margin-top:8px; padding-top:8px; border-top: 1px solid rgba(99,102,241,0.1)">
-          Click the token to reveal it. Add as request header:<br>
-          <code>Authorization: Bearer &lt;token&gt;</code><br>
-          <span style="color:var(--muted);font-size:11px">This is your refresh token — it auto-renews so you never need to update your config.</span>
-        </div>
+      <!-- D2L VNC re-login inline -->
+      <div id="d2lReloginBox" class="hidden" style="margin-top:8px;padding:12px;background:#fffbeb;border:1px solid #fde68a;border-radius:var(--radius-sm)">
+        <div style="font-size:12.5px;font-weight:500;margin-bottom:8px">D2L Re-authentication</div>
+        <a id="d2lVncLink" class="vnc-btn" href="#" target="_blank" style="margin-bottom:6px;font-size:12.5px;padding:8px 12px">Open D2L login</a>
+        <div id="d2lReloginStatus" style="font-size:12px;color:var(--muted)"></div>
+      </div>
+
+      <!-- Piazza reconnect inline -->
+      <div id="piazzaReconnectBox" class="hidden" style="margin-top:8px;padding:12px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm)">
+        <div style="font-size:12.5px;font-weight:500;margin-bottom:8px">Connect Piazza</div>
+        <div class="field"><label>Piazza email</label><input type="email" id="piazzaReEmail" placeholder="you@university.edu" /></div>
+        <div class="field"><label>Password</label><input type="password" id="piazzaRePw" placeholder="Piazza password" /></div>
+        <button class="btn btn-primary" style="font-size:12.5px;padding:8px" onclick="reconnectPiazza(this)">Connect</button>
+        <div id="piazzaReconnectStatus" style="font-size:12px;color:var(--muted);margin-top:6px"></div>
       </div>
 
       <div class="divider"></div>
 
-      <!-- Notes upload (persistent) -->
+      <!-- ── Course Notes ─────────────────────────────────────────── -->
       <div class="card-head" style="margin-bottom:12px">
         <h2 style="font-size:14px">Course Notes</h2>
         <p>Upload PDFs to enable semantic search across your notes.</p>
@@ -628,7 +646,7 @@
 
       <div id="dropZone" onclick="document.getElementById('fileInput').click()"
         style="border:1.5px dashed var(--border-hi);border-radius:var(--radius);padding:20px;text-align:center;cursor:pointer;transition:border-color 0.15s,background 0.15s"
-        ondragover="event.preventDefault();this.style.borderColor='var(--accent)';this.style.background='rgba(99,102,241,0.05)'"
+        ondragover="event.preventDefault();this.style.borderColor='var(--accent)';this.style.background='rgba(15,23,42,0.03)'"
         ondragleave="this.style.borderColor='';this.style.background=''"
         ondrop="handleDrop(event)">
         <div style="font-size:22px;margin-bottom:6px">📄</div>
@@ -642,6 +660,37 @@
       <div id="notesList" style="margin-top:14px;display:flex;flex-direction:column;gap:6px"></div>
 
       <div class="divider"></div>
+
+      <!-- ── MCP Config (collapsed) ───────────────────────────────── -->
+      <details style="margin-bottom:6px">
+        <summary style="font-size:12.5px;font-weight:500;cursor:pointer;color:var(--muted);padding:4px 0;user-select:none">MCP Server Config</summary>
+        <div style="margin-top:10px">
+          <div class="url-box">
+            <div class="url-box-label">MCP Server URL</div>
+            <div class="url-value" id="mcpUrl"></div>
+            <button class="copy-btn" onclick="copyField('mcpUrl', this)">
+              <span class="copy-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></span>
+              <span class="copy-label">Copy URL</span>
+            </button>
+            <div class="poke-hint">
+              In Poke: <strong>Settings → MCP Servers → Add</strong><br>
+              Paste the URL above, then add the token below as a request header.
+            </div>
+          </div>
+
+          <div class="url-box" style="margin-top:10px">
+            <div class="url-box-label">Bearer Token (long-lived, auto-renews)</div>
+            <div class="url-value" id="bearerToken" style="font-size:11px;opacity:0.6;filter:blur(4px);transition:filter 0.2s;cursor:pointer;user-select:none" onclick="this.style.filter='none';this.style.opacity='1';this.style.cursor='text'" title="Click to reveal"></div>
+            <button class="copy-btn" onclick="copyField('bearerToken', this)">
+              <span class="copy-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></span>
+              <span class="copy-label">Copy token</span>
+            </button>
+            <div class="poke-hint" style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">
+              <code>Authorization: Bearer &lt;token&gt;</code>
+            </div>
+          </div>
+        </div>
+      </details>
 
       <button class="btn btn-ghost" onclick="reset()">Connect another account</button>
     </div>
@@ -851,15 +900,137 @@
 
     function skipPiazza() { showSuccess(); }
 
-    // ── Step 3: Success + Notes ────────────────────────────────────────
+    // ── Step 3: Dashboard ──────────────────────────────────────────────
     function showSuccess() {
       document.getElementById('stepPiazza').classList.add('hidden');
       document.getElementById('stepSuccess').classList.remove('hidden');
       document.getElementById('mcpUrl').textContent = `${API}/mcp`;
-      // Show refresh token — it's long-lived and the gateway auto-exchanges it.
-      // Access tokens expire in 1hr; refresh tokens stay valid as long as they're used.
       document.getElementById('bearerToken').textContent = refreshToken || token;
       loadNotes();
+      loadConnectionStatus();
+    }
+
+    async function loadConnectionStatus() {
+      // D2L status
+      try {
+        const res = await fetch(`${API}/api/d2l/status`, { headers: { 'Authorization': `Bearer ${token}` } });
+        const data = await res.json();
+        const dot = document.getElementById('d2lStatusDot');
+        const text = document.getElementById('d2lStatusText');
+        const btn = document.getElementById('d2lReconnectBtn');
+        if (data.connected) {
+          dot.style.background = 'var(--success)';
+          const host = data.host || 'learn.uwaterloo.ca';
+          const age = data.tokenAge ? `${Math.round(data.tokenAge / 3600000)}h ago` : '';
+          text.textContent = `Connected to ${host}` + (age ? ` · refreshed ${age}` : '');
+          btn.textContent = 'Re-login';
+          btn.style.display = '';
+        } else {
+          dot.style.background = 'var(--danger)';
+          text.textContent = data.duoRequired ? 'Session expired — re-login required' : 'Not connected';
+          btn.textContent = data.duoRequired ? 'Re-login' : 'Connect';
+          btn.style.display = '';
+        }
+      } catch {
+        document.getElementById('d2lStatusText').textContent = 'Unable to check';
+      }
+
+      // Piazza status
+      try {
+        const res = await fetch(`${API}/api/piazza/status`, { headers: { 'Authorization': `Bearer ${token}` } });
+        const data = await res.json();
+        const dot = document.getElementById('piazzaStatusDot');
+        const text = document.getElementById('piazzaStatusText');
+        const btn = document.getElementById('piazzaReconnectBtn');
+        if (data.connected) {
+          dot.style.background = 'var(--success)';
+          text.textContent = 'Connected';
+          btn.textContent = 'Reconnect';
+        } else {
+          dot.style.background = '#d4d4d4';
+          text.textContent = 'Not connected';
+          btn.textContent = 'Connect';
+        }
+        btn.style.display = '';
+      } catch {
+        document.getElementById('piazzaStatusText').textContent = 'Unable to check';
+      }
+    }
+
+    // D2L re-login via VNC
+    let d2lReloginPoll = null;
+    async function reconnectD2L() {
+      const box = document.getElementById('d2lReloginBox');
+      const status = document.getElementById('d2lReloginStatus');
+      box.classList.remove('hidden');
+      status.textContent = 'Starting browser session...';
+      try {
+        const res = await fetch(`${API}/auth/d2l/start`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({ d2lHost: 'learn.uwaterloo.ca' }),
+        });
+        const data = await res.json();
+        if (!data.vncUrl) throw new Error(data.error || 'Failed to start session');
+        document.getElementById('d2lVncLink').href = data.vncUrl;
+        status.innerHTML = '<span class="spin"></span> Waiting for login...';
+
+        // Poll status
+        if (d2lReloginPoll) clearInterval(d2lReloginPoll);
+        d2lReloginPoll = setInterval(async () => {
+          try {
+            const sr = await fetch(`${API}/auth/d2l/status/${data.sessionId}`);
+            const sd = await sr.json();
+            if (sd.status === 'authenticated') {
+              clearInterval(d2lReloginPoll);
+              d2lReloginPoll = null;
+              status.innerHTML = '<span style="color:var(--success)">&#10003;</span> Connected! Session refreshed.';
+              document.getElementById('d2lStatusDot').style.background = 'var(--success)';
+              document.getElementById('d2lStatusText').textContent = 'Connected · just now';
+              setTimeout(() => box.classList.add('hidden'), 3000);
+            } else if (sd.status === 'failed') {
+              clearInterval(d2lReloginPoll);
+              d2lReloginPoll = null;
+              status.innerHTML = '<span style="color:var(--danger)">&#10005;</span> Login failed. Try again.';
+            }
+          } catch {}
+        }, 2500);
+      } catch (e) {
+        status.textContent = e.message;
+      }
+    }
+
+    // Piazza reconnect
+    function showPiazzaReconnect() {
+      document.getElementById('piazzaReconnectBox').classList.toggle('hidden');
+    }
+
+    async function reconnectPiazza(btn) {
+      const email = document.getElementById('piazzaReEmail').value;
+      const password = document.getElementById('piazzaRePw').value;
+      const status = document.getElementById('piazzaReconnectStatus');
+      if (!email || !password) { status.textContent = 'Email and password required.'; return; }
+      btn.disabled = true;
+      btn.textContent = 'Connecting...';
+      status.textContent = '';
+      try {
+        const res = await fetch(`${API}/api/piazza/connect`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({ email, password }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed');
+        status.innerHTML = '<span style="color:var(--success)">&#10003;</span> Connected!';
+        document.getElementById('piazzaStatusDot').style.background = 'var(--success)';
+        document.getElementById('piazzaStatusText').textContent = 'Connected';
+        setTimeout(() => document.getElementById('piazzaReconnectBox').classList.add('hidden'), 2000);
+      } catch (e) {
+        status.innerHTML = `<span style="color:var(--danger)">&#10005;</span> ${e.message}`;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Connect';
+      }
     }
 
     // ── Notes upload ───────────────────────────────────────────────────
@@ -932,13 +1103,23 @@
         const notes = data.notes || data;
         const el = document.getElementById('notesList');
         if (!notes?.length) { el.innerHTML = ''; return; }
-        el.innerHTML = notes.map(n => `
-          <div style="display:flex;align-items:center;gap:10px;padding:9px 12px;background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:var(--radius-sm);font-size:12.5px">
-            <span style="color:var(--accent-hi);flex-shrink:0">📄</span>
-            <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${n.title}</span>
-            <span style="color:var(--muted);font-size:11px">${n.status === 'ready' ? 'Ready' : n.status}</span>
-            <button onclick="deleteNote('${n.id}', this)" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:14px;padding:0;line-height:1" title="Delete">×</button>
-          </div>`).join('');
+        el.innerHTML = notes.map(n => {
+          const statusColor = n.status === 'ready' ? 'var(--success)' : n.status === 'error' ? 'var(--danger)' : 'var(--warn)';
+          const statusLabel = n.status === 'ready' ? 'Ready' : n.status === 'processing' ? 'Processing...' : n.status === 'error' ? 'Error' : n.status;
+          const pages = n.page_count ? `${n.page_count} pg` : '';
+          const date = n.created_at ? new Date(n.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
+          const meta = [pages, date].filter(Boolean).join(' · ');
+          return `
+          <div style="display:flex;align-items:center;gap:10px;padding:10px 13px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);font-size:12.5px">
+            <span style="flex-shrink:0">📄</span>
+            <div style="flex:1;min-width:0">
+              <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500">${n.title}</div>
+              <div style="font-size:11px;color:var(--muted);margin-top:1px">${meta}</div>
+            </div>
+            <span style="font-size:10.5px;padding:2px 7px;border-radius:4px;background:${statusColor}15;color:${statusColor};font-weight:500">${statusLabel}</span>
+            <button onclick="deleteNote('${n.id}', this)" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:16px;padding:0 2px;line-height:1;opacity:0.5" title="Delete">&times;</button>
+          </div>`;
+        }).join('');
       } catch (e) {
         showAlert('uploadAlertBox', `Failed to load notes: ${e.message}`);
       }
