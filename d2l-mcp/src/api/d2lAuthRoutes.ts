@@ -13,6 +13,24 @@ import { authMiddleware } from "./auth.js";
 
 const router = Router();
 
+function resolvePublicHost(req: Request): string {
+  // Explicit override for production launch hardening.
+  const override = process.env.PUBLIC_BASE_HOST?.trim();
+  if (override) return override;
+
+  const forwardedHost = (req.headers["x-forwarded-host"] as string | undefined)?.trim();
+  const hostHeader = (req.headers["host"] as string | undefined)?.trim();
+  const reqHost = req.hostname?.trim();
+  const host = forwardedHost || hostHeader || reqHost || process.env.API_HOST || "localhost";
+  const normalized = host.split(",")[0].trim().replace(/:\d+$/, "");
+
+  // Temporary guard: horizon host has mixed DNS delegation in production.
+  if (normalized === "horizon.hamzaammar.ca") {
+    return "api.hamzaammar.ca";
+  }
+  return normalized;
+}
+
 /**
  * POST /auth/d2l/start
  * Body: { d2lHost?: string }
@@ -23,7 +41,7 @@ router.post("/auth/d2l/start", authMiddleware, async (req: Request, res: Respons
   const d2lHost = (req.body?.d2lHost as string) || process.env.D2L_HOST || "learn.uwaterloo.ca";
 
   try {
-    const reqHost = req.hostname || process.env.API_HOST || "localhost";
+    const reqHost = resolvePublicHost(req);
     const { sessionId, vncUrl } = await BrowserSessionManager.startSession(userId, d2lHost, reqHost);
     res.json({
       sessionId,
