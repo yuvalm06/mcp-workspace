@@ -56,6 +56,18 @@ export async function presignUpload(
 }
 
 /**
+ * Generate presigned GET URL for viewing a PDF.
+ */
+export async function presignDownload(s3Key: string): Promise<string> {
+  const cmd = new GetObjectCommand({
+    Bucket: getBucket(),
+    Key: s3Key,
+    ResponseContentType: "application/pdf",
+  });
+  return getSignedUrl(getClient(), cmd, { expiresIn: 3600 });
+}
+
+/**
  * Fetch object from S3 as Buffer (for process endpoint).
  */
 export async function getObjectBuffer(s3Key: string): Promise<Buffer | null> {

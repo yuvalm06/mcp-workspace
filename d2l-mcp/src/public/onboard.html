@@ -43,6 +43,11 @@
     .wrap {
       width: 100%;
       max-width: 400px;
+      transition: max-width 0.3s ease;
+    }
+
+    .wrap.wide {
+      max-width: 520px;
     }
 
     /* ── Header ─────────────────────────────────────────────────── */
@@ -661,38 +666,77 @@
 
       <div class="divider"></div>
 
-      <!-- ── MCP Config (collapsed) ───────────────────────────────── -->
-      <details style="margin-bottom:6px">
-        <summary style="font-size:12.5px;font-weight:500;cursor:pointer;color:var(--muted);padding:4px 0;user-select:none">MCP Server Config</summary>
-        <div style="margin-top:10px">
-          <div class="url-box">
-            <div class="url-box-label">MCP Server URL</div>
-            <div class="url-value" id="mcpUrl"></div>
-            <button class="copy-btn" onclick="copyField('mcpUrl', this)">
-              <span class="copy-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></span>
-              <span class="copy-label">Copy URL</span>
-            </button>
-            <div class="poke-hint">
-              In Poke: <strong>Settings → MCP Servers → Add</strong><br>
-              Paste the URL above, then add the token below as a request header.
-            </div>
-          </div>
+      <!-- ── Connect to AI ─────────────────────────────────────────── -->
+      <div class="card-head" style="margin-bottom:12px">
+        <h2 style="font-size:14px">Connect to AI</h2>
+        <p>Add Horizon to your AI assistant.</p>
+      </div>
 
-          <div class="url-box" style="margin-top:10px">
-            <div class="url-box-label">Bearer Token (long-lived, auto-renews)</div>
-            <div class="url-value" id="bearerToken" style="font-size:11px;opacity:0.6;filter:blur(4px);transition:filter 0.2s;cursor:pointer;user-select:none" onclick="this.style.filter='none';this.style.opacity='1';this.style.cursor='text'" title="Click to reveal"></div>
-            <button class="copy-btn" onclick="copyField('bearerToken', this)">
-              <span class="copy-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></span>
-              <span class="copy-label">Copy token</span>
-            </button>
-            <div class="poke-hint" style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">
-              <code>Authorization: Bearer &lt;token&gt;</code>
-            </div>
-          </div>
+      <div class="url-box" style="margin-bottom:10px">
+        <div class="url-box-label">MCP Server URL</div>
+        <div class="url-value" id="mcpUrl" style="margin-bottom:6px"></div>
+        <button class="copy-btn" onclick="copyField('mcpUrl', this)">
+          <span class="copy-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></span>
+          <span class="copy-label">Copy URL</span>
+        </button>
+      </div>
+
+      <div class="url-box" style="margin-bottom:12px">
+        <div class="url-box-label">Bearer Token (auto-renews)</div>
+        <div class="url-value" id="bearerToken" style="font-size:11px;opacity:0.6;filter:blur(4px);transition:filter 0.2s;cursor:pointer;user-select:none;margin-bottom:6px" onclick="this.style.filter='none';this.style.opacity='1';this.style.cursor='text'" title="Click to reveal"></div>
+        <button class="copy-btn" onclick="copyField('bearerToken', this)">
+          <span class="copy-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></span>
+          <span class="copy-label">Copy token</span>
+        </button>
+      </div>
+
+      <!-- Claude Desktop -->
+      <details style="margin-bottom:8px">
+        <summary style="font-size:12.5px;font-weight:500;cursor:pointer;padding:6px 0;user-select:none">Claude Desktop</summary>
+        <div style="font-size:12px;color:var(--muted);line-height:1.7;margin-top:4px;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm)">
+          <ol style="margin:0;padding-left:18px">
+            <li>Open Claude Desktop &rarr; Settings (gear icon)</li>
+            <li>Developer &rarr; Edit Config</li>
+            <li>Paste the config below and save</li>
+            <li>Restart Claude Desktop</li>
+          </ol>
+          <pre id="claudeConfig" style="margin:10px 0 6px;padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:5px;font-size:11px;font-family:'SF Mono',ui-monospace,monospace;overflow-x:auto;white-space:pre;line-height:1.5"></pre>
+          <button class="copy-btn" onclick="copyField('claudeConfig', this)">
+            <span class="copy-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></span>
+            <span class="copy-label">Copy config</span>
+          </button>
         </div>
       </details>
 
-      <button class="btn btn-ghost" onclick="reset()">Connect another account</button>
+      <!-- Poke -->
+      <details style="margin-bottom:8px">
+        <summary style="font-size:12.5px;font-weight:500;cursor:pointer;padding:6px 0;user-select:none">Poke by Interaction</summary>
+        <div style="font-size:12px;color:var(--muted);line-height:1.7;margin-top:4px;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm)">
+          <ol style="margin:0;padding-left:18px">
+            <li>Open Poke &rarr; Settings &rarr; MCP Servers &rarr; Add</li>
+            <li>Paste the <strong>MCP Server URL</strong> above</li>
+            <li>Add a request header:<br><code>Authorization: Bearer &lt;token&gt;</code><br>(use the token above)</li>
+            <li>Save &mdash; tools appear automatically</li>
+          </ol>
+        </div>
+      </details>
+
+      <!-- Claude Code CLI -->
+      <details style="margin-bottom:8px">
+        <summary style="font-size:12.5px;font-weight:500;cursor:pointer;padding:6px 0;user-select:none">Claude Code (CLI)</summary>
+        <div style="font-size:12px;color:var(--muted);line-height:1.7;margin-top:4px;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm)">
+          Run this in your terminal:
+          <pre id="cliConfig" style="margin:8px 0 6px;padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:5px;font-size:11px;font-family:'SF Mono',ui-monospace,monospace;overflow-x:auto;white-space:pre-wrap;word-break:break-all;line-height:1.5"></pre>
+          <button class="copy-btn" onclick="copyField('cliConfig', this)">
+            <span class="copy-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></span>
+            <span class="copy-label">Copy command</span>
+          </button>
+        </div>
+      </details>
+
+      <div class="divider"></div>
+
+      <button class="btn btn-ghost" onclick="logout()">Sign out</button>
     </div>
 
   </div>
@@ -727,10 +771,7 @@
         });
         const data = await res.json();
         if (res.ok && data.token) {
-          token = data.token;
-          refreshToken = data.refreshToken;
-          tokenExpiresAt = data.expiresAt;
-          scheduleTokenRefresh(tokenExpiresAt);
+          setSession(data);
         }
       } catch {}
     }
@@ -740,6 +781,12 @@
       refreshToken = data.refreshToken;
       tokenExpiresAt = data.expiresAt;
       scheduleTokenRefresh(tokenExpiresAt);
+      // Persist for returning users
+      try {
+        localStorage.setItem('hzn_token', token);
+        if (refreshToken) localStorage.setItem('hzn_refreshToken', refreshToken);
+        if (tokenExpiresAt) localStorage.setItem('hzn_expiresAt', String(tokenExpiresAt));
+      } catch {}
     }
 
     // ── Helpers ────────────────────────────────────────────────────────
@@ -902,10 +949,31 @@
 
     // ── Step 3: Dashboard ──────────────────────────────────────────────
     function showSuccess() {
+      document.getElementById('stepAuth').classList.add('hidden');
+      document.getElementById('stepD2L').classList.add('hidden');
       document.getElementById('stepPiazza').classList.add('hidden');
       document.getElementById('stepSuccess').classList.remove('hidden');
+      document.querySelector('.wrap').classList.add('wide');
       document.getElementById('mcpUrl').textContent = `${API}/mcp`;
       document.getElementById('bearerToken').textContent = refreshToken || token;
+
+      // Populate Claude Desktop config
+      const apiKey = localStorage.getItem('hzn_apiKey');
+      const headerVal = apiKey || `Bearer ${token}`;
+      const headerKey = apiKey ? 'x-api-key' : 'Authorization';
+      const claudeJson = JSON.stringify({
+        mcpServers: {
+          horizon: {
+            command: 'npx',
+            args: ['mcp-remote', `${API}/mcp`, '--header', `${headerKey}: ${headerVal}`]
+          }
+        }
+      }, null, 2);
+      document.getElementById('claudeConfig').textContent = claudeJson;
+
+      // Populate CLI command
+      document.getElementById('cliConfig').textContent = `claude mcp add horizon -- npx mcp-remote ${API}/mcp --header "${headerKey}: ${headerVal}"`;
+
       loadNotes();
       loadConnectionStatus();
     }
@@ -1117,6 +1185,7 @@
               <div style="font-size:11px;color:var(--muted);margin-top:1px">${meta}</div>
             </div>
             <span style="font-size:10.5px;padding:2px 7px;border-radius:4px;background:${statusColor}15;color:${statusColor};font-weight:500">${statusLabel}</span>
+            ${n.status === 'ready' && n.s3_key ? `<button onclick="viewNote('${n.id}')" style="background:none;border:none;color:var(--accent);cursor:pointer;font-size:11.5px;font-family:inherit;font-weight:500;padding:2px 6px">View</button>` : ''}
             <button onclick="deleteNote('${n.id}', this)" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:16px;padding:0 2px;line-height:1;opacity:0.5" title="Delete">&times;</button>
           </div>`;
         }).join('');
@@ -1133,6 +1202,17 @@
       } catch { btn.disabled = false; }
     }
 
+    async function viewNote(id) {
+      try {
+        const res = await fetch(`${API}/api/notes/${id}/view`, { headers: { 'Authorization': `Bearer ${token}` } });
+        const data = await res.json();
+        if (data.viewUrl) window.open(data.viewUrl, '_blank');
+        else showAlert('uploadAlertBox', 'Could not generate view URL.');
+      } catch (e) {
+        showAlert('uploadAlertBox', `View failed: ${e.message}`);
+      }
+    }
+
     // ── Copy ───────────────────────────────────────────────────────────
     function copyField(id, btn) {
       const text = document.getElementById(id).textContent;
@@ -1143,21 +1223,51 @@
         label.textContent = 'Copied!';
         setTimeout(() => {
           icon.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
-          label.textContent = id === 'mcpUrl' ? 'Copy URL' : 'Copy token';
+          label.textContent = id === 'mcpUrl' ? 'Copy URL' : id === 'bearerToken' ? 'Copy token' : id === 'claudeConfig' ? 'Copy config' : 'Copy command';
         }, 2000);
       });
     }
 
-    // ── Reset ──────────────────────────────────────────────────────────
-    function reset() {
-      token = null; sessionId = null;
+    // ── Logout ─────────────────────────────────────────────────────────
+    function logout() {
+      token = null; refreshToken = null; tokenExpiresAt = null; sessionId = null;
+      if (refreshTimer) clearTimeout(refreshTimer);
       if (pollInterval) clearInterval(pollInterval);
+      try { localStorage.removeItem('hzn_token'); localStorage.removeItem('hzn_refreshToken'); localStorage.removeItem('hzn_expiresAt'); localStorage.removeItem('hzn_apiKey'); } catch {}
       ['stepD2L','stepPiazza','stepSuccess','vncStep'].forEach(id => document.getElementById(id).classList.add('hidden'));
+      document.querySelector('.wrap').classList.remove('wide');
       document.getElementById('stepAuth').classList.remove('hidden');
       document.getElementById('authBtn').disabled = false;
       document.getElementById('authBtn').textContent = 'Sign in';
       switchTab('signin');
     }
+
+    // ── Auto-login for returning users ────────────────────────────────
+    async function tryAutoLogin() {
+      try {
+        const saved = localStorage.getItem('hzn_refreshToken');
+        if (!saved) return;
+        // Show a loading state to prevent auth form flash
+        document.getElementById('stepAuth').style.opacity = '0.4';
+        document.getElementById('authBtn').disabled = true;
+        const res = await fetch(`${API}/auth/refresh`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refreshToken: saved }),
+        });
+        const data = await res.json();
+        if (res.ok && data.token) {
+          setSession(data);
+          showSuccess();
+          return;
+        }
+      } catch {}
+      // Failed — show auth form normally
+      document.getElementById('stepAuth').style.opacity = '';
+      document.getElementById('authBtn').disabled = false;
+    }
+
+    tryAutoLogin();
 
     document.addEventListener('keydown', e => {
       if (e.key !== 'Enter') return;

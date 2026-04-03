@@ -6,7 +6,7 @@
 import { Router, Request, Response } from "express";
 import { supabase } from "../utils/supabase.js";
 import { ingestPdfBuffer, embedNoteSections, generateEmbedding, NotesTools } from "../study/src/notes.js";
-import { isS3Configured, presignUpload, getObjectBuffer, getBucket } from "./s3.js";
+import { isS3Configured, presignUpload, presignDownload, getObjectBuffer, getBucket } from "./s3.js";
 import { SyncTools } from "../study/src/sync.js";
 import { PiazzaTools } from "../study/src/piazza.js";
 import { D2LClient } from "../client.js";
@@ -238,7 +238,7 @@ router.get("/notes", async (req: Request, res: Response) => {
 
   let query = supabase
     .from("notes")
-    .select("id, title, course_id, created_at, page_count, status")
+    .select("id, title, course_id, created_at, page_count, status, s3_key")
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
 
@@ -253,6 +253,29 @@ router.get("/notes", async (req: Request, res: Response) => {
   }
 
   res.json({ notes: notes ?? [] });
+});
+
+/** GET /api/notes/:id/view — get a presigned URL to view a note's PDF */
+router.get("/notes/:id/view", async (req: Request, res: Response) => {
+  const userId = req.userId!;
+  const noteId = req.params.id;
+  try {
+    const { data, error } = await supabase
+      .from("notes")
+      .select("s3_key")
+      .eq("user_id", userId)
+      .eq("id", noteId)
+      .limit(1);
+    const note = Array.isArray(data) ? data[0] : data;
+    if (error || !note?.s3_key) {
+      res.status(404).json({ error: "Note not found" });
+      return;
+    }
+    const viewUrl = await presignDownload(note.s3_key);
+    res.json({ viewUrl });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 /** DELETE /api/notes/:id — delete a note and its sections for the current user */
