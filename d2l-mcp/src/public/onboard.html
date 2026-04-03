@@ -355,12 +355,6 @@
       padding: 4px 0 18px;
     }
 
-    .success-icon {
-      font-size: 32px;
-      line-height: 1;
-      margin-bottom: 10px;
-    }
-
     .success-header h2 {
       font-size: 17px;
       font-weight: 650;
@@ -458,8 +452,8 @@
   <div class="wrap">
 
     <div class="header">
-      <div class="logo">⚡</div>
-      <h1>Horizon MCP</h1>
+      <div class="logo"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg></div>
+      <h1>Horizon</h1>
       <p>AI-powered access to your D2L courses</p>
     </div>
 
@@ -606,8 +600,7 @@
     <!-- ── Step 3: Dashboard ──────────────────────────────────────────── -->
     <div id="stepSuccess" class="card hidden">
       <div class="success-header">
-        <div class="success-icon">⚡</div>
-        <h2>Horizon Dashboard</h2>
+        <h2>Dashboard</h2>
         <p>Manage your connections and course notes.</p>
       </div>
 
@@ -619,7 +612,7 @@
       <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:6px">
         <!-- D2L row -->
         <div id="d2lStatusRow" style="display:flex;align-items:center;gap:10px;padding:10px 13px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm)">
-          <span style="font-size:15px;flex-shrink:0">🎓</span>
+          <span style="font-size:13px;flex-shrink:0;color:var(--muted)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c0 1.1 2.7 2 6 2s6-.9 6-2v-5"/></svg></span>
           <div style="flex:1;min-width:0">
             <div style="font-size:13px;font-weight:500">D2L / Brightspace</div>
             <div id="d2lStatusText" style="font-size:11.5px;color:var(--muted)">Checking...</div>
@@ -630,7 +623,7 @@
 
         <!-- Piazza row -->
         <div id="piazzaStatusRow" style="display:flex;align-items:center;gap:10px;padding:10px 13px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm)">
-          <span style="font-size:15px;flex-shrink:0">💬</span>
+          <span style="font-size:13px;flex-shrink:0;color:var(--muted)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span>
           <div style="flex:1;min-width:0">
             <div style="font-size:13px;font-weight:500">Piazza</div>
             <div id="piazzaStatusText" style="font-size:11.5px;color:var(--muted)">Checking...</div>
@@ -677,7 +670,7 @@
         ondragover="event.preventDefault();this.style.borderColor='var(--accent)';this.style.background='rgba(15,23,42,0.03)'"
         ondragleave="this.style.borderColor='';this.style.background=''"
         ondrop="handleDrop(event)">
-        <div style="font-size:22px;margin-bottom:6px">📄</div>
+        <div style="margin-bottom:6px;color:var(--muted)"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div>
         <div style="font-size:13px;font-weight:500;margin-bottom:3px">Drop PDFs here or click to browse</div>
         <div style="font-size:11.5px;color:var(--muted)">PDF only · max 50MB per file</div>
         <input type="file" id="fileInput" accept=".pdf" multiple style="display:none" onchange="handleFiles(this.files)" />
@@ -768,7 +761,11 @@
   </div>
 
   <script>
-    const API = window.location.origin;
+    // Launch hardening: if user lands on horizon host during DNS split,
+    // route all API/MCP actions through the stable api host.
+    const API = window.location.hostname === 'horizon.hamzaammar.ca'
+      ? 'https://api.hamzaammar.ca'
+      : window.location.origin;
     let mode = 'signin';
     let token = null;
     let refreshToken = null;
@@ -823,7 +820,7 @@
     function showAlert(id, msg, type = 'error') {
       const box = document.getElementById(id);
       box.className = `alert alert-${type}`;
-      box.innerHTML = `<span>${type === 'error' ? '⚠' : 'ℹ'}</span> ${msg}`;
+      box.innerHTML = msg;
       box.classList.remove('hidden');
     }
     function hideAlert(id) { document.getElementById(id).classList.add('hidden'); }
@@ -1442,12 +1439,12 @@
         }
         if (!processOk) throw new Error(lastProcessErr);
 
-        item.querySelector('.spin').outerHTML = '<span style="color:#34d399;flex-shrink:0">✓</span>';
+        item.querySelector('.spin').outerHTML = '<span style="color:var(--success);flex-shrink:0;font-weight:600">Done</span>';
         item.querySelector('.spin') // already replaced above — noop
         setStatus('Done', '#34d399');
         setTimeout(() => { item.remove(); loadNotes(); }, 2000);
       } catch (e) {
-        item.querySelector('span:first-child').textContent = '✕';
+        item.querySelector('span:first-child').textContent = 'Failed';
         item.querySelector('span:first-child').style.color = 'var(--danger)';
         let msg = (e && e.message) ? e.message : 'Failed';
         if (msg === 'Load failed') msg = 'Browser upload blocked (likely CORS/network). Please retry — fallback is available.';
@@ -1485,7 +1482,7 @@
           const noteId = String(n.id || '');
           return `
           <div style="display:flex;align-items:center;gap:10px;padding:10px 13px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);font-size:12.5px">
-            <span style="flex-shrink:0">📄</span>
+            <span style="flex-shrink:0;color:var(--muted)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></span>
             <div style="flex:1;min-width:0">
               <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500">${safeTitle}</div>
               <div style="font-size:11px;color:var(--muted);margin-top:1px">${meta}</div>
