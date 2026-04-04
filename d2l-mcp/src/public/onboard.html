@@ -761,11 +761,7 @@
   </div>
 
   <script>
-    // Launch hardening: if user lands on horizon host during DNS split,
-    // route all API/MCP actions through the stable api host.
-    const API = window.location.hostname === 'horizon.hamzaammar.ca'
-      ? 'https://api.hamzaammar.ca'
-      : window.location.origin;
+    const API = window.location.origin;
     let mode = 'signin';
     let token = null;
     let refreshToken = null;
