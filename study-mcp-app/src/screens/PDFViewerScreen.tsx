@@ -15,7 +15,7 @@ import Pdf from 'react-native-pdf';
 import { apiClient } from '../config/api';
 import { supabase } from '../lib/supabase';
 
-const BASE_URL = 'https://api.hamzaammar.ca/api';
+const BASE_URL = 'https://horizon.hamzaammar.ca/api';
 const { width } = Dimensions.get('window');
 
 interface RouteParams {

@@ -51,7 +51,7 @@ export class D2LService {
       const isHealthy = await this.checkBackendHealth();
       if (!isHealthy) {
         throw new Error('Cannot reach backend server. Please make sure the backend is running on ' +
-          (process.env.EXPO_PUBLIC_API_BASE_URL || 'https://api.hamzaammar.ca'));
+          (process.env.EXPO_PUBLIC_API_BASE_URL || 'https://horizon.hamzaammar.ca'));
       }
 
       const response = await apiClient.post('/api/d2l/token', credentials, {
@@ -87,7 +87,7 @@ export class D2LService {
       const isHealthy = await this.checkBackendHealth();
       if (!isHealthy) {
         throw new Error('Cannot reach backend server. Please make sure the backend is running on ' +
-          (process.env.EXPO_PUBLIC_API_BASE_URL || 'https://api.hamzaammar.ca'));
+          (process.env.EXPO_PUBLIC_API_BASE_URL || 'https://horizon.hamzaammar.ca'));
       }
 
       const response = await apiClient.post('/api/d2l/connect-cookie', payload, {
@@ -124,7 +124,7 @@ export class D2LService {
       const isHealthy = await this.checkBackendHealth();
       if (!isHealthy) {
         throw new Error('Cannot reach backend server. Please make sure the backend is running on ' +
-          (process.env.EXPO_PUBLIC_API_BASE_URL || 'https://api.hamzaammar.ca'));
+          (process.env.EXPO_PUBLIC_API_BASE_URL || 'https://horizon.hamzaammar.ca'));
       }
 
       // Set a longer timeout for authentication (90 seconds - Playwright can take a while)

@@ -1,6 +1,6 @@
 import { supabase } from '../lib/supabase';
 
-const BASE_URL = 'https://api.hamzaammar.ca/api';
+const BASE_URL = 'https://horizon.hamzaammar.ca/api';
 
 async function getAuthHeader(forceRefresh = false): Promise<string> {
   if (forceRefresh) {
