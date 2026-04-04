@@ -38,6 +38,14 @@ func isPublicRoute(path string) bool {
 	if strings.HasPrefix(path, "/auth/d2l/status/") {
 		return true
 	}
+	// OAuth 2.0 discovery + dynamic client registration used by mcp-remote.
+	// These must be reachable without a token so the client can learn how to auth.
+	if strings.HasPrefix(path, "/.well-known/") {
+		return true
+	}
+	if path == "/register" {
+		return true
+	}
 	return false
 }
 
