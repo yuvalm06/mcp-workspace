@@ -68,7 +68,7 @@ Wait for the new task to be running (usually 2-5 minutes), then:
 
 1. **Check Health Endpoint** (if available):
    ```bash
-   curl https://api.hamzaammar.ca/health
+   curl https://horizon.hamzaammar.ca/health
    ```
 
 2. **Check Logs for Errors:**
@@ -100,7 +100,7 @@ See `TESTING_CHECKLIST.md` for comprehensive testing steps.
    
    # Test status endpoint
    curl -H "Authorization: Bearer $TOKEN" \
-     https://api.hamzaammar.ca/api/d2l/status
+     https://horizon.hamzaammar.ca/api/d2l/status
    
    # Should return: {"connected": true, "reauthRequired": false, ...}
    ```

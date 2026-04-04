@@ -60,7 +60,7 @@ You need to use your computer's IP address instead of `localhost`:
 
 Set the production API URL:
 ```env
-EXPO_PUBLIC_API_BASE_URL=https://api.hamzaammar.ca
+EXPO_PUBLIC_API_BASE_URL=https://horizon.hamzaammar.ca
 ```
 
 ### Verify Backend is Running

@@ -25,7 +25,7 @@ EXPO_PUBLIC_COGNITO_USER_POOL_ID=your-user-pool-id-here
 EXPO_PUBLIC_COGNITO_CLIENT_ID=your-client-id-here
 EXPO_PUBLIC_COGNITO_CLIENT_SECRET=your-client-secret-here
 EXPO_PUBLIC_COGNITO_REGION=us-east-1
-EXPO_PUBLIC_API_BASE_URL=https://api.hamzaammar.ca
+EXPO_PUBLIC_API_BASE_URL=https://horizon.hamzaammar.ca
 ```
 
 **Note:** If your Cognito App Client has a client secret, you **must** set `EXPO_PUBLIC_COGNITO_CLIENT_SECRET`. The app will automatically compute and include SECRET_HASH in all requests.

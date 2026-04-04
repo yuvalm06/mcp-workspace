@@ -2,7 +2,7 @@
 
 ## The Issue
 
-Your backend IS running at `https://api.hamzaammar.ca` (verified with curl), but the app might be:
+Your backend IS running at `https://horizon.hamzaammar.ca` (verified with curl), but the app might be:
 1. Using `http://` instead of `https://`
 2. Using `localhost:3000` in dev mode
 3. Missing the environment variable
@@ -14,7 +14,7 @@ Your backend IS running at `https://api.hamzaammar.ca` (verified with curl), but
 Create or update `.env` file in `study-mcp-app/`:
 
 ```env
-EXPO_PUBLIC_API_BASE_URL=https://api.hamzaammar.ca
+EXPO_PUBLIC_API_BASE_URL=https://horizon.hamzaammar.ca
 ```
 
 Then **restart Expo**:
@@ -27,7 +27,7 @@ npm start
 
 The app now logs the API URL on startup. Check your console for:
 ```
-[API] Base URL: https://api.hamzaammar.ca
+[API] Base URL: https://horizon.hamzaammar.ca
 [API] __DEV__: true/false
 [API] EXPO_PUBLIC_API_BASE_URL: ...
 ```
@@ -39,7 +39,7 @@ If it shows `http://localhost:3000` but you want to use production, set the env 
 If you always want to use production (even in dev), you can temporarily modify `src/config/api.ts`:
 
 ```typescript
-const API_BASE_URL = 'https://api.hamzaammar.ca';
+const API_BASE_URL = 'https://horizon.hamzaammar.ca';
 ```
 
 But using the environment variable is better.
@@ -53,4 +53,4 @@ After setting the env var and restarting:
 
 ## Note
 
-The backend is confirmed running at `https://api.hamzaammar.ca` - the `/health` endpoint returns `{"ok":true}`. The issue is just the app's configuration.
+The backend is confirmed running at `https://horizon.hamzaammar.ca` - the `/health` endpoint returns `{"ok":true}`. The issue is just the app's configuration.

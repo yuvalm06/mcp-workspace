@@ -105,7 +105,7 @@ npx expo start --clear
 
 1. **Backend Health:**
    ```bash
-   curl https://api.hamzaammar.ca/health
+   curl https://horizon.hamzaammar.ca/health
    # Should return: {"ok":true}
    ```
 
@@ -172,7 +172,7 @@ aws logs tail /ecs/study-mcp-backend --since 10m --region us-east-1
 
 ```bash
 # Test backend health
-curl https://api.hamzaammar.ca/health
+curl https://horizon.hamzaammar.ca/health
 
 # Test dashboard (needs auth token)
 # Get token from app logs or Cognito

@@ -4,7 +4,7 @@ AI-powered access to your D2L Brightspace courses, Piazza discussions, and study
 
 ## Setup
 
-1. Go to **https://api.hamzaammar.ca** and sign in (or create an account)
+1. Go to **https://horizon.hamzaammar.ca** and sign in (or create an account)
 2. Connect your D2L account via the browser login flow
 3. Optionally connect Piazza
 4. Use one of the methods below to connect your AI assistant
@@ -23,7 +23,7 @@ AI-powered access to your D2L Brightspace courses, Piazza discussions, and study
       "command": "npx",
       "args": [
         "mcp-remote",
-        "https://api.hamzaammar.ca/mcp",
+        "https://horizon.hamzaammar.ca/mcp",
         "--header",
         "x-api-key: YOUR_API_KEY"
       ]
@@ -37,13 +37,13 @@ Replace `YOUR_API_KEY` with the key shown on your dashboard (or use `Authorizati
 ### Claude Code (CLI)
 
 ```bash
-claude mcp add horizon -- npx mcp-remote https://api.hamzaammar.ca/mcp --header "x-api-key: YOUR_API_KEY"
+claude mcp add horizon -- npx mcp-remote https://horizon.hamzaammar.ca/mcp --header "x-api-key: YOUR_API_KEY"
 ```
 
 ### Poke by Interaction
 
 1. Open Poke > Settings > MCP Servers > Add
-2. Set the URL to `https://api.hamzaammar.ca/mcp`
+2. Set the URL to `https://horizon.hamzaammar.ca/mcp`
 3. Add a request header: `Authorization: Bearer <token>` (use the token from your dashboard)
 4. Save — tools appear automatically
 

@@ -43,7 +43,7 @@ Create `.env` file (or use Expo config):
 ```env
 COGNITO_USER_POOL_ID=your-pool-id
 COGNITO_CLIENT_ID=your-client-id
-API_BASE_URL=https://api.hamzaammar.ca
+API_BASE_URL=https://horizon.hamzaammar.ca
 # or for dev:
 # API_BASE_URL=http://localhost:3000
 ```

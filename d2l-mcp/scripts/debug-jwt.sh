@@ -23,10 +23,10 @@ fi
 echo "✅ Got token (${#TOKEN} chars)"
 echo ""
 echo "🔍 Decoding JWT header/payload..."
-curl -s -X POST https://api.hamzaammar.ca/debug/jwt \
+curl -s -X POST https://horizon.hamzaammar.ca/debug/jwt \
   -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
 
 echo ""
 echo "🧪 Testing authenticated endpoint..."
-curl -s https://api.hamzaammar.ca/api/d2l/status \
+curl -s https://horizon.hamzaammar.ca/api/d2l/status \
   -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
