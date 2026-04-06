@@ -169,17 +169,82 @@ export async function downloadFile(url: string, savePath?: string) {
     const context = page.context();
     await context.setExtraHTTPHeaders({});
     
-    // Navigate to the file page
+    // Navigate to the file page and capture response
     console.error(`[DOWNLOAD] Navigating to: ${fullUrl}`);
-    await page.goto(fullUrl, { waitUntil: 'networkidle', timeout: 30000 });
-    
-    // Wait a bit for page to fully load
+    const navResponse = await page.goto(fullUrl, { waitUntil: 'networkidle', timeout: 30000 });
+
+    // Check if the navigation itself was a direct file download (non-HTML response)
+    const navContentType = navResponse?.headers()['content-type'] || '';
+    if (navResponse && navResponse.ok() && !navContentType.includes('text/html')) {
+      console.error(`[DOWNLOAD] URL is direct file download (content-type: ${navContentType})`);
+      const data = await navResponse.body();
+
+      // Extract filename from content-disposition or use URL filename
+      const contentDisposition = navResponse.headers()['content-disposition'] || '';
+      let filename = urlFilename;
+      const filenameMatch = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+      if (filenameMatch) {
+        filename = filenameMatch[1].replace(/['"]/g, '');
+      }
+
+      // Save file
+      let finalPath = savePath && fs.existsSync(savePath) && !fs.statSync(savePath).isDirectory()
+        ? savePath
+        : path.join(downloadsDir, filename);
+
+      // Handle filename collisions
+      let counter = 1;
+      const ext = path.extname(finalPath);
+      const base = path.basename(finalPath, ext);
+      const dirPath = path.dirname(finalPath);
+
+      while (fs.existsSync(finalPath)) {
+        finalPath = path.join(dirPath, `${base} (${counter})${ext}`);
+        counter++;
+      }
+
+      fs.writeFileSync(finalPath, data);
+      console.error(`[DOWNLOAD] File saved successfully: ${finalPath} (${(data.length / 1024).toFixed(1)} KB)`);
+
+      const extToMime: Record<string, string> = {
+        '.pdf': 'application/pdf',
+        '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        '.doc': 'application/msword',
+        '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        '.xls': 'application/vnd.ms-excel',
+        '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        '.ppt': 'application/vnd.ms-powerpoint',
+        '.zip': 'application/zip',
+        '.txt': 'text/plain',
+        '.html': 'text/html',
+        '.jpg': 'image/jpeg',
+        '.jpeg': 'image/jpeg',
+        '.png': 'image/png',
+        '.gif': 'image/gif',
+      };
+
+      const finalContentType = navContentType.includes('octet-stream')
+        ? (extToMime[ext.toLowerCase()] || navContentType)
+        : navContentType;
+
+      const textContent = await extractContent(data, ext);
+
+      return {
+        path: finalPath,
+        filename: path.basename(finalPath),
+        size: data.length,
+        contentType: finalContentType,
+        content: textContent,
+      };
+    }
+
+    // If we got an HTML page, wait a bit for it to fully load
     await page.waitForTimeout(2000);
-    
+
     // Try multiple strategies to trigger download
     let downloadPromise: Promise<any> | null = null;
     let downloadPath: string | null = null;
-    
+
     // Strategy 1: Look for download button/link
     const downloadSelectors = [
       'a[download]', // Direct download link
@@ -211,83 +276,8 @@ export async function downloadFile(url: string, savePath?: string) {
       }
     }
     
-    // Strategy 2: If no download button found, check if page is already a direct file download
-    if (!clicked) {
-      console.error(`[DOWNLOAD] No download button found, checking if URL is direct download...`);
-      
-      // Check content type of current page
-      const contentType = await page.evaluate(() => {
-        const meta = document.querySelector('meta[http-equiv="Content-Type"]');
-        return meta ? meta.getAttribute('content') : null;
-      });
-      
-      // If it's already a file (not HTML), try direct download
-      const response = await page.request.get(fullUrl);
-      const responseContentType = response.headers()['content-type'] || '';
-      
-      if (!responseContentType.includes('text/html') && response.ok()) {
-        console.error(`[DOWNLOAD] URL appears to be direct file download`);
-    const data = await response.body();
-    
-        // Extract filename from content-disposition or use URL filename
-    const contentDisposition = response.headers()['content-disposition'] || '';
-    let filename = urlFilename;
-    const filenameMatch = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
-    if (filenameMatch) {
-      filename = filenameMatch[1].replace(/['"]/g, '');
-    }
-    
-        // Save file
-    let finalPath = savePath && fs.existsSync(savePath) && !fs.statSync(savePath).isDirectory()
-      ? savePath
-      : path.join(downloadsDir, filename);
-
-    // Handle filename collisions
-    let counter = 1;
-    const ext = path.extname(finalPath);
-    const base = path.basename(finalPath, ext);
-    const dirPath = path.dirname(finalPath);
-    
-    while (fs.existsSync(finalPath)) {
-      finalPath = path.join(dirPath, `${base} (${counter})${ext}`);
-      counter++;
-    }
-
-    fs.writeFileSync(finalPath, data);
-        console.error(`[DOWNLOAD] File saved successfully: ${finalPath} (${(data.length / 1024).toFixed(1)} KB)`);
-    
-    const extToMime: Record<string, string> = {
-      '.pdf': 'application/pdf',
-      '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      '.doc': 'application/msword',
-      '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      '.xls': 'application/vnd.ms-excel',
-      '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-      '.ppt': 'application/vnd.ms-powerpoint',
-      '.zip': 'application/zip',
-      '.txt': 'text/plain',
-      '.html': 'text/html',
-      '.jpg': 'image/jpeg',
-      '.jpeg': 'image/jpeg',
-      '.png': 'image/png',
-      '.gif': 'image/gif',
-    };
-    
-        const finalContentType = responseContentType.includes('octet-stream') 
-          ? (extToMime[ext.toLowerCase()] || responseContentType)
-          : responseContentType;
-
-    const textContent = await extractContent(data, ext);
-
-    return {
-      path: finalPath,
-      filename: path.basename(finalPath),
-      size: data.length,
-      contentType: finalContentType,
-      content: textContent,
-    };
-      }
-    }
+    // If no download button found, we already checked for direct downloads above
+    // Nothing more to do here
     
     // Wait for download to complete
     if (downloadPromise) {
