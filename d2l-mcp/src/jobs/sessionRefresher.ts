@@ -312,13 +312,15 @@ export async function refreshD2LSession(userId: string): Promise<RefreshResult> 
     await saveStorageStateToS3(userId, tmpStatePath);
     await fs.unlink(tmpStatePath).catch(() => {});
 
-    // 8. Upsert fresh D2L token into database
+    // 8. Upsert fresh D2L token into database (clear duo_required_at if set)
     const token = JSON.stringify({ d2lSessionVal: sessionVal, d2lSecureSessionVal: secureVal });
     const { error } = await supabase.from("user_credentials").upsert({
       user_id: userId,
       service: "d2l",
       host: d2lHost,
       token,
+      duo_required_at: null,
+      notification_sent_at: null,
       updated_at: new Date().toISOString(),
     }, { onConflict: "user_id,service" });
 
