@@ -4,7 +4,7 @@ import * as os from 'os';
 import { createRequire } from 'module';
 import { fileURLToPath } from 'url';
 import { execSync } from 'child_process';
-import { getAuthenticatedContext, getD2LToken } from '../auth.js';
+import { getAuthenticatedContext, getD2LToken, getToken } from '../auth.js';
 import { getUserId } from '../utils/userContext.js';
 import mammoth from 'mammoth';
 
@@ -186,7 +186,7 @@ function saveBuffer(data: Buffer, filename: string, downloadsDir: string, savePa
 export async function downloadFile(url: string, savePath?: string) {
   const userId = getUserId();
 
-  // Resolve host and session token for this user
+  // Resolve host for this user, and get a fresh token (triggers re-login if stale)
   const d2lTokenData = await getD2LToken(userId);
   const d2lHost = d2lTokenData?.host || process.env.D2L_HOST || 'learn.ul.ie';
 
@@ -198,12 +198,14 @@ export async function downloadFile(url: string, savePath?: string) {
     ? savePath
     : path.join(os.homedir(), 'Downloads');
 
-  // Strategy 0: Direct HTTP fetch using D2L session cookies — no browser needed
-  if (d2lTokenData?.token) {
+  // Strategy 0: Direct HTTP fetch using D2L session cookies — no browser needed.
+  // Use getToken() (not getD2LToken) so stale tokens trigger a silent re-login first.
+  const freshTokenStr = await getToken(userId).catch(() => null);
+  if (freshTokenStr) {
     try {
       let cookieHeader = '';
       try {
-        const parsed = JSON.parse(d2lTokenData.token);
+        const parsed = JSON.parse(freshTokenStr);
         if (parsed.d2lSessionVal && parsed.d2lSecureSessionVal) {
           cookieHeader = `d2lSessionVal=${parsed.d2lSessionVal}; d2lSecureSessionVal=${parsed.d2lSecureSessionVal}`;
         }
