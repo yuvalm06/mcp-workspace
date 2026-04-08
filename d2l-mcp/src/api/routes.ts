@@ -1632,23 +1632,47 @@ router.post("/d2l/save-credentials", async (req: Request, res: Response) => {
     const sbUrl = process.env.SUPABASE_URL;
     const sbKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_KEY;
     if (!sbUrl || !sbKey) throw new Error("Missing Supabase config");
-    const resp = await fetch(`${sbUrl}/rest/v1/user_credentials`, {
-      method: "POST",
-      headers: {
-        "apikey": sbKey, "Authorization": `Bearer ${sbKey}`,
-        "Content-Type": "application/json",
-        "Prefer": "resolution=merge-duplicates",
-      },
-      body: JSON.stringify({
-        user_id: userId, service: "d2l",
-        host: host || process.env.D2L_HOST || "learn.uwaterloo.ca",
-        username, password,
-        updated_at: new Date().toISOString(),
-      }),
-    });
-    if (!resp.ok) throw new Error(await resp.text());
+    const d2lHost = host || process.env.D2L_HOST || "learn.uwaterloo.ca";
+
+    // First try PATCH — only updates if row already exists (preserves token)
+    const patchResp = await fetch(
+      `${sbUrl}/rest/v1/user_credentials?user_id=eq.${userId}&service=eq.d2l`,
+      {
+        method: "PATCH",
+        headers: {
+          "apikey": sbKey, "Authorization": `Bearer ${sbKey}`,
+          "Content-Type": "application/json",
+          "Prefer": "return=representation",
+        },
+        body: JSON.stringify({ username, password, host: d2lHost }),
+      }
+    );
+    if (!patchResp.ok) throw new Error(await patchResp.text());
+    const patched = await patchResp.json() as unknown[];
+
+    if (patched.length === 0) {
+      // No existing row — insert with placeholder token so future credential
+      // re-login works even before the first VNC session completes.
+      const insertResp = await fetch(`${sbUrl}/rest/v1/user_credentials`, {
+        method: "POST",
+        headers: {
+          "apikey": sbKey, "Authorization": `Bearer ${sbKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          user_id: userId, service: "d2l",
+          host: d2lHost, username, password,
+          token: "{}",
+          updated_at: new Date().toISOString(),
+        }),
+      });
+      if (!insertResp.ok) throw new Error(await insertResp.text());
+    }
+
+    console.error(`[API] Saved D2L credentials for user ${userId}`);
     res.json({ ok: true });
   } catch (e: any) {
+    console.error(`[API] save-credentials error for user ${userId}: ${e.message}`);
     res.status(500).json({ error: e.message });
   }
 });

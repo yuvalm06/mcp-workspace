@@ -1028,11 +1028,15 @@
       try {
         // Save credentials if provided
         if (username && password) {
-          await fetch(`${API}/api/d2l/save-credentials`, {
+          const credRes = await fetch(`${API}/api/d2l/save-credentials`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
             body: JSON.stringify({ host: d2lHost, username, password }),
           });
+          if (!credRes.ok) {
+            const credErr = await credRes.json().catch(() => ({}));
+            showAlert('d2lAlertBox', `Warning: credentials not saved — ${credErr.error || credRes.status}. Login will still open but auto-reauth won't work.`);
+          }
         }
 
         const res = await fetch(`${API}/auth/d2l/start`, {
