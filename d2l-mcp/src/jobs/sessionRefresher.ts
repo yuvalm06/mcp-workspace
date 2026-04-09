@@ -204,33 +204,120 @@ async function attemptCredentialLogin(
 }
 
 /**
- * Attempt to refresh a user's D2L session cookies using saved ADFS browser state.
- * Falls back to credential-based login if ADFS state is absent or expired.
+ * Ping the D2L API with stored session cookies to check if the session is still alive.
+ * Returns the token to persist (possibly updated with rotated cookies from Set-Cookie headers),
+ * or null if the session is dead.
+ */
+async function pingD2LSession(
+  userId: string,
+  d2lHost: string,
+  currentToken: string
+): Promise<string | null> {
+  let cookieHeader = "";
+  let existingCookies: { d2lSessionVal: string; d2lSecureSessionVal: string } | null = null;
+  try {
+    existingCookies = JSON.parse(currentToken);
+    if (existingCookies?.d2lSessionVal && existingCookies?.d2lSecureSessionVal) {
+      cookieHeader = `d2lSessionVal=${existingCookies.d2lSessionVal}; d2lSecureSessionVal=${existingCookies.d2lSecureSessionVal}`;
+    }
+  } catch { /* not a cookie token */ }
+
+  if (!cookieHeader) return null;
+
+  try {
+    const pingResp = await fetch(`https://${d2lHost}/d2l/api/lp/1.43/users/whoami`, {
+      headers: { "Cookie": cookieHeader },
+      redirect: "manual",
+    });
+
+    if (pingResp.status < 200 || pingResp.status >= 300) {
+      console.error(`[REFRESH] API ping returned ${pingResp.status} for user ${userId} — session dead`);
+      return null;
+    }
+
+    // Session alive — check for rotated cookies in Set-Cookie response header
+    const setCookie = pingResp.headers.get("set-cookie");
+    if (setCookie && existingCookies) {
+      let newSessionVal: string | undefined;
+      let newSecureVal: string | undefined;
+      // Node Fetch joins multiple Set-Cookie values with ", " — split carefully on cookie boundaries
+      for (const part of setCookie.split(/,\s*(?=[^;]+=)/)) {
+        const m = part.match(/^([^=\s]+)=([^;]*)/);
+        if (!m) continue;
+        const [, name, value] = m;
+        if (name === "d2lSessionVal") newSessionVal = value;
+        if (name === "d2lSecureSessionVal") newSecureVal = value;
+      }
+      if (newSessionVal || newSecureVal) {
+        console.error(`[REFRESH] Captured rotated D2L cookies for user ${userId}`);
+        return JSON.stringify({
+          d2lSessionVal: newSessionVal || existingCookies.d2lSessionVal,
+          d2lSecureSessionVal: newSecureVal || existingCookies.d2lSecureSessionVal,
+        });
+      }
+    }
+
+    return currentToken; // session alive, cookies unchanged
+  } catch (e: any) {
+    console.error(`[REFRESH] API ping error for user ${userId}: ${e.message}`);
+    return null;
+  }
+}
+
+/**
+ * Attempt to refresh a user's D2L session cookies.
+ * First tries a lightweight API ping — if the session is still alive, just update updated_at.
+ * Falls back to headless browser with S3 ADFS state, then credential login.
  * No VNC, no Xvfb — fully headless.
  */
 export async function refreshD2LSession(userId: string): Promise<RefreshResult> {
   const startTime = Date.now();
   console.error(`[REFRESH] Starting headless refresh for user ${userId}`);
 
-  // 1. Get the user's D2L host via direct REST API (needed for both S3 and credential paths)
+  // 1. Load current credentials from DB (host + token)
   let d2lHost = process.env.D2L_HOST || "learn.uwaterloo.ca";
+  let currentToken: string | null = null;
   try {
     const sbUrl = process.env.SUPABASE_URL;
     const sbKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_KEY;
     if (sbUrl && sbKey) {
-      const resp = await fetch(`${sbUrl}/rest/v1/user_credentials?user_id=eq.${userId}&service=eq.d2l&select=host&limit=1`, {
+      const resp = await fetch(`${sbUrl}/rest/v1/user_credentials?user_id=eq.${userId}&service=eq.d2l&select=host,token&limit=1`, {
         headers: { "apikey": sbKey, "Authorization": `Bearer ${sbKey}` },
       });
       if (resp.ok) {
-        const rows = await resp.json() as Array<{ host: string }>;
-        if (rows.length > 0 && rows[0].host) d2lHost = rows[0].host;
+        const rows = await resp.json() as Array<{ host: string; token: string }>;
+        if (rows.length > 0) {
+          if (rows[0].host) d2lHost = rows[0].host;
+          if (rows[0].token) currentToken = rows[0].token;
+        }
       }
     }
   } catch (e) {
-    console.error("[REFRESH] Error fetching D2L host:", e);
+    console.error("[REFRESH] Error fetching D2L credentials:", e);
   }
 
-  // 2. Load saved browser state from S3
+  // 2. API ping — if the stored session cookies still work, no browser needed
+  if (currentToken) {
+    const pingedToken = await pingD2LSession(userId, d2lHost, currentToken);
+    if (pingedToken !== null) {
+      const { error } = await supabase.from("user_credentials").upsert({
+        user_id: userId,
+        service: "d2l",
+        host: d2lHost,
+        token: pingedToken,
+        duo_required_at: null,
+        notification_sent_at: null,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "user_id,service" });
+      if (error) console.error(`[REFRESH] Failed to update token after API ping for user ${userId}:`, error.message);
+      const durationMs = Date.now() - startTime;
+      console.error(`[REFRESH] API ping succeeded for user ${userId} — session alive (${durationMs}ms)`);
+      return { success: true };
+    }
+    console.error(`[REFRESH] API ping failed for user ${userId} — session expired, falling back to browser refresh`);
+  }
+
+  // 4. Load saved ADFS browser state from S3
   const storageStatePath = await loadStorageStateFromS3(userId);
   if (!storageStatePath) {
     console.error(`[REFRESH] No stored browser state for user ${userId} — trying credential login`);
