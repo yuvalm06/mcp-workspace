@@ -6,7 +6,7 @@ import { existsSync } from "fs";
 import fs from "fs/promises";
 import os from "os";
 import { supabase } from "./utils/supabase.js";
-import { saveStorageStateToS3 } from "./utils/s3Storage.js";
+import { loadStorageStateFromS3, saveStorageStateToS3 } from "./utils/s3Storage.js";
 
 const REMOTE_DEBUG = process.env.REMOTE_DEBUG === "true";
 
@@ -160,61 +160,195 @@ export async function isDuoRequired(userId: string): Promise<boolean> {
 }
 
 /**
- * Attempt a silent headless re-login using stored credentials + S3 browser state.
- * Returns the new token on success, null if Duo wall is hit.
+ * Attempt a silent headless re-login.
+ * Strategy:
+ *   1. Load S3 ADFS browser state and navigate to D2L — if ADFS cookies still valid,
+ *      extract fresh D2L session cookies without any MFA prompt.
+ *   2. If S3 state is absent or expired (lands on login page), fall back to
+ *      credential-based fill (username + password). This only works if UWaterloo
+ *      ADFS accepts the credentials without Duo on a fresh browser session.
+ * Returns the new token JSON string on success, null if re-login cannot complete headlessly.
  */
 async function attemptSilentRelogin(userId: string): Promise<string | null> {
+  console.error(`[AUTH] Attempting silent re-login for user ${userId}`);
+
   const creds = await getD2LCredentials(userId);
+  const d2lHost = creds?.host || process.env.D2L_HOST || "learn.uwaterloo.ca";
+  const chromiumPath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || "/usr/bin/chromium";
+  const NAV_TIMEOUT_MS = 30_000;
+
+  // ── Path 1: Try S3 ADFS browser state (works for 30-90 days after a VNC login) ──
+  const storageStatePath = await loadStorageStateFromS3(userId);
+  if (storageStatePath) {
+    console.error(`[AUTH] S3 browser state found for user ${userId}, trying headless S3-state refresh`);
+    let browser;
+    try {
+      browser = await chromium.launch({
+        headless: true,
+        executablePath: chromiumPath,
+        args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
+      });
+      const context = await browser.newContext({ storageState: storageStatePath });
+      const page = await context.newPage();
+
+      await page.goto(`https://${d2lHost}/d2l/home`, { waitUntil: "domcontentloaded", timeout: NAV_TIMEOUT_MS });
+      await page.waitForTimeout(3000);
+
+      const finalUrl = page.url();
+      console.error(`[AUTH] S3-state final URL for user ${userId}: ${finalUrl}`);
+
+      const isLoginPage =
+        finalUrl.includes("login") ||
+        finalUrl.includes("adfs") ||
+        finalUrl.includes("microsoftonline") ||
+        finalUrl.includes("sso");
+
+      if (!isLoginPage) {
+        // ADFS cookies were still valid — extract D2L session cookies
+        const cookies = await context.cookies();
+        const sessionVal = cookies.find(c => c.name === "d2lSessionVal" && c.domain.includes(d2lHost))?.value;
+        const secureVal = cookies.find(c => c.name === "d2lSecureSessionVal" && c.domain.includes(d2lHost))?.value;
+
+        if (sessionVal && secureVal) {
+          // Persist updated ADFS state back to S3
+          const tmpStatePath = join(os.tmpdir(), `silent-relogin-state-${userId}.json`);
+          await context.storageState({ path: tmpStatePath });
+          await saveStorageStateToS3(userId, tmpStatePath);
+          await fs.unlink(tmpStatePath).catch(() => {});
+
+          const token = JSON.stringify({ d2lSessionVal: sessionVal, d2lSecureSessionVal: secureVal });
+
+          // Persist fresh token, clear duo_required_at
+          const sbUrl = process.env.SUPABASE_URL;
+          const sbKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_KEY;
+          if (sbUrl && sbKey) {
+            await fetch(`${sbUrl}/rest/v1/user_credentials`, {
+              method: "POST",
+              headers: {
+                "apikey": sbKey, "Authorization": `Bearer ${sbKey}`,
+                "Content-Type": "application/json",
+                "Prefer": "resolution=merge-duplicates",
+              },
+              body: JSON.stringify({
+                user_id: userId, service: "d2l", host: d2lHost, token,
+                duo_required_at: null, notification_sent_at: null,
+                updated_at: new Date().toISOString(),
+              }),
+            });
+          }
+
+          await browser.close();
+          userTokenCache[userId] = { token, expiresAt: Date.now() + 82800000 };
+          console.error(`[AUTH] S3-state silent re-login succeeded for user ${userId}`);
+          return token;
+        }
+      }
+
+      // S3 state was expired (landed on login page) — fall through to credential fill
+      console.error(`[AUTH] S3 ADFS state expired for user ${userId}, falling back to credential fill`);
+      await browser.close();
+    } catch (e: any) {
+      console.error(`[AUTH] S3-state browser error for user ${userId}: ${e.message}`);
+      if (browser) await browser.close().catch(() => {});
+    }
+  } else {
+    console.error(`[AUTH] No S3 browser state for user ${userId}, trying credential fill`);
+  }
+
+  // ── Path 2: Credential-based headless login (requires no Duo on fresh session) ──
   if (!creds?.username || !creds?.password) {
     console.error(`[AUTH] No stored credentials for user ${userId}, cannot silent re-login`);
     return null;
   }
 
-  console.error(`[AUTH] Attempting silent re-login for user ${userId}`);
-
-  const chromiumPath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || "/usr/bin/chromium";
-  const sessionPath = getSessionPath(userId);
-
-  let context;
+  let browser;
   try {
-    context = await chromium.launchPersistentContext(sessionPath, {
+    browser = await chromium.launch({
       headless: true,
       executablePath: chromiumPath,
-      args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+      args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
     });
-  } catch (e: any) {
-    console.error(`[AUTH] Silent re-login browser launch failed: ${e.message}`);
-    return null;
-  }
-
-  try {
+    const context = await browser.newContext();
     const page = await context.newPage();
 
-    // Navigate and wait for final destination — UW SSO redirects through ADFS
-    // even with valid session cookies, so don't bail on intermediate URLs
-    await page.goto(`https://${creds.host}/d2l/home`, { timeout: 30000, waitUntil: 'networkidle' }).catch(() => {});
+    await page.goto(`https://${d2lHost}/d2l/home`, { waitUntil: "domcontentloaded", timeout: NAV_TIMEOUT_MS });
+    await page.waitForTimeout(3000);
 
     const finalUrl = page.url();
-    console.error(`[AUTH] Silent re-login final URL for user ${userId}: ${finalUrl}`);
+    console.error(`[AUTH] Credential login final URL for user ${userId}: ${finalUrl}`);
 
-    // If we landed on a Duo MFA page — cannot proceed headlessly
     if (finalUrl.includes("duo") || finalUrl.includes("duosecurity")) {
       console.error(`[AUTH] Silent re-login hit Duo wall for user ${userId}`);
+      await browser.close();
       return null;
     }
 
-    // If we're on a username/password form — try filling it
-    if (finalUrl.includes("adfs") || finalUrl.includes("login") || finalUrl.includes("saml")) {
+    if (
+      finalUrl.includes("adfs") ||
+      finalUrl.includes("login") ||
+      finalUrl.includes("saml") ||
+      finalUrl.includes("microsoftonline") ||
+      finalUrl.includes("sso")
+    ) {
       console.error(`[AUTH] Silent re-login on auth page, attempting credential fill for user ${userId}`);
       await page.fill('input[type="text"], input[name="UserName"], input[name="username"]', creds.username).catch(() => {});
+
+      // Multi-step ADFS: click Next, then fill password
+      const nextSelectors = [
+        'input[type="submit"]', 'button[type="submit"]', '#submitButton',
+        'input[value*="Next" i]', 'button:has-text("Next")',
+      ];
+      let clicked = false;
+      for (const sel of nextSelectors) {
+        try {
+          const btn = page.locator(sel).first();
+          if (await btn.isVisible({ timeout: 1000 })) {
+            await btn.click();
+            clicked = true;
+            await page.waitForTimeout(2000);
+            break;
+          }
+        } catch { continue; }
+      }
+      if (!clicked) {
+        await page.keyboard.press("Enter");
+        await page.waitForTimeout(2000);
+      }
+
       await page.fill('input[type="password"], input[name="Password"], input[name="password"]', creds.password).catch(() => {});
-      await page.keyboard.press("Enter");
-      // Wait for redirect — if Duo comes up we can't proceed
-      await page.waitForURL('**', { timeout: 15000 }).catch(() => {});
+
+      const submitSelectors = [
+        'input[type="submit"]', 'button[type="submit"]',
+        'button:has-text("Sign in")', 'button:has-text("Log in")', '#submitButton',
+      ];
+      let submitted = false;
+      for (const sel of submitSelectors) {
+        try {
+          const btn = page.locator(sel).first();
+          if (await btn.isVisible({ timeout: 1000 })) {
+            await btn.click();
+            submitted = true;
+            break;
+          }
+        } catch { continue; }
+      }
+      if (!submitted) {
+        await page.keyboard.press("Enter");
+      }
+
+      await page.waitForTimeout(5000);
       const postLoginUrl = page.url();
       console.error(`[AUTH] Post-credential URL for user ${userId}: ${postLoginUrl}`);
-      if (postLoginUrl.includes("duo") || postLoginUrl.includes("adfs") || postLoginUrl.includes("login")) {
+
+      if (
+        postLoginUrl.includes("duo") ||
+        postLoginUrl.includes("duosecurity") ||
+        postLoginUrl.includes("adfs") ||
+        postLoginUrl.includes("login") ||
+        postLoginUrl.includes("microsoftonline")
+      ) {
         console.error(`[AUTH] Still on auth/Duo page after credential fill for user ${userId}`);
+        await browser.close();
         return null;
       }
     }
@@ -226,12 +360,13 @@ async function attemptSilentRelogin(userId: string): Promise<string | null> {
 
     if (!sessionVal || !secureVal) {
       console.error(`[AUTH] Silent re-login: no D2L cookies found for user ${userId}`);
+      await browser.close();
       return null;
     }
 
     const token = JSON.stringify({ d2lSessionVal: sessionVal, d2lSecureSessionVal: secureVal });
 
-    // Save refreshed browser storage state to S3 so future scheduled refreshes can use ADFS cookies
+    // Save browser state to S3 for future refreshes
     try {
       const tmpStatePath = join(os.tmpdir(), `silent-relogin-state-${userId}.json`);
       await context.storageState({ path: tmpStatePath });
@@ -254,22 +389,22 @@ async function attemptSilentRelogin(userId: string): Promise<string | null> {
           "Prefer": "resolution=merge-duplicates",
         },
         body: JSON.stringify({
-          user_id: userId, service: "d2l", host: creds.host, token,
+          user_id: userId, service: "d2l", host: d2lHost, token,
           duo_required_at: null, notification_sent_at: null,
           updated_at: new Date().toISOString(),
         }),
       });
     }
 
+    await browser.close();
     userTokenCache[userId] = { token, expiresAt: Date.now() + 82800000 };
-    console.error(`[AUTH] Silent re-login succeeded for user ${userId}`);
+    console.error(`[AUTH] Credential silent re-login succeeded for user ${userId}`);
     return token;
 
   } catch (e: any) {
     console.error(`[AUTH] Silent re-login error for user ${userId}: ${e.message}`);
+    if (browser) await browser.close().catch(() => {});
     return null;
-  } finally {
-    try { await context.close(); } catch {}
   }
 }
 
