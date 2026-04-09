@@ -237,6 +237,7 @@ async function pingD2LSession(
 
     // Session alive — check for rotated cookies in Set-Cookie response header
     const setCookie = pingResp.headers.get("set-cookie");
+    console.error(`[REFRESH] Ping 200 for user ${userId} — Set-Cookie: ${setCookie ? setCookie.substring(0, 120) : "none"}`);
     if (setCookie && existingCookies) {
       let newSessionVal: string | undefined;
       let newSecureVal: string | undefined;
