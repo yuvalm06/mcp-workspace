@@ -340,30 +340,34 @@ async function attemptSilentRelogin(userId: string): Promise<string | null> {
         await page.keyboard.press("Enter");
       }
 
-      await page.waitForTimeout(5000);
+      // Wait up to 30s for navigation away from ADFS.
+      // UWaterloo embeds Duo MFA within the ADFS flow — the browser stays at adfs.*
+      // while Duo processes the "remember this device" cookie, then redirects to D2L.
+      try {
+        await page.waitForURL(
+          url => !url.hostname.includes("adfs.uwaterloo.ca"),
+          { timeout: 30000 }
+        );
+        // Give D2L a moment to set session cookies after the SAML assertion
+        await page.waitForTimeout(2000);
+      } catch {
+        // Still on ADFS after 30s — fall through, check cookies below
+      }
+
       const postLoginUrl = page.url();
       console.error(`[AUTH] Post-credential URL for user ${userId}: ${postLoginUrl}`);
-
-      if (
-        postLoginUrl.includes("duo") ||
-        postLoginUrl.includes("duosecurity") ||
-        postLoginUrl.includes("adfs") ||
-        postLoginUrl.includes("login") ||
-        postLoginUrl.includes("microsoftonline")
-      ) {
-        console.error(`[AUTH] Still on auth/Duo page after credential fill for user ${userId}`);
-        await browser.close();
-        return null;
-      }
     }
 
-    // Extract D2L session cookies
+    // Check D2L cookies — most reliable success indicator.
+    // Do this before URL checks: Duo embedded in ADFS keeps URL at adfs.* during MFA,
+    // but D2L session cookies are set once SAML assertion completes.
     const cookies = await context.cookies();
     const sessionVal = cookies.find(c => c.name === "d2lSessionVal")?.value;
     const secureVal = cookies.find(c => c.name === "d2lSecureSessionVal")?.value;
 
     if (!sessionVal || !secureVal) {
-      console.error(`[AUTH] Silent re-login: no D2L cookies found for user ${userId}`);
+      const pageTitle = await page.title().catch(() => "unknown");
+      console.error(`[AUTH] Silent re-login: no D2L cookies for user ${userId} — page="${pageTitle}" url=${page.url()}`);
       await browser.close();
       return null;
     }
