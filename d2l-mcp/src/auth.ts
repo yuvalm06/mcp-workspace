@@ -295,28 +295,41 @@ async function attemptSilentRelogin(userId: string): Promise<string | null> {
       finalUrl.includes("sso")
     ) {
       console.error(`[AUTH] Silent re-login on auth page, attempting credential fill for user ${userId}`);
+
+      // Record pre-login D2L cookie values so we can verify login actually succeeded
+      const preCookies = await context.cookies();
+      const preSessionVal = preCookies.find(c => c.name === "d2lSessionVal")?.value;
+      const preSecureVal = preCookies.find(c => c.name === "d2lSecureSessionVal")?.value;
+
       await page.fill('input[type="text"], input[name="UserName"], input[name="username"]', creds.username).catch(() => {});
 
-      // Multi-step ADFS: click Next, then fill password
-      const nextSelectors = [
-        'input[type="submit"]', 'button[type="submit"]', '#submitButton',
-        'input[value*="Next" i]', 'button:has-text("Next")',
-      ];
-      let clicked = false;
-      for (const sel of nextSelectors) {
-        try {
-          const btn = page.locator(sel).first();
-          if (await btn.isVisible({ timeout: 1000 })) {
-            await btn.click();
-            clicked = true;
-            await page.waitForTimeout(2000);
-            break;
-          }
-        } catch { continue; }
-      }
-      if (!clicked) {
-        await page.keyboard.press("Enter");
-        await page.waitForTimeout(2000);
+      // If password field is already visible (single-page ADFS form), skip the "Next" step.
+      const passwordVisible = await page.locator('input[type="password"]').isVisible({ timeout: 500 }).catch(() => false);
+      if (!passwordVisible) {
+        // Multi-step form: use only specific Next/Continue selectors (not generic submit,
+        // which would submit the form prematurely with only the username filled).
+        const nextSelectors = [
+          'input[value*="Next" i]',
+          'button:has-text("Next")',
+          'button:has-text("Continue")',
+        ];
+        let clicked = false;
+        for (const sel of nextSelectors) {
+          try {
+            const btn = page.locator(sel).first();
+            if (await btn.isVisible({ timeout: 1000 })) {
+              await btn.click();
+              clicked = true;
+              break;
+            }
+          } catch { continue; }
+        }
+        if (!clicked) {
+          await page.locator('input[name="UserName"], input[type="text"]').first().press("Enter").catch(() => {
+            page.keyboard.press("Enter");
+          });
+        }
+        await page.waitForSelector('input[type="password"]', { timeout: 5000 }).catch(() => {});
       }
 
       await page.fill('input[type="password"], input[name="Password"], input[name="password"]', creds.password).catch(() => {});
@@ -340,27 +353,72 @@ async function attemptSilentRelogin(userId: string): Promise<string | null> {
         await page.keyboard.press("Enter");
       }
 
-      // Wait up to 30s for navigation away from ADFS.
+      // Wait up to 35s for navigation away from ADFS.
       // UWaterloo embeds Duo MFA within the ADFS flow — the browser stays at adfs.*
-      // while Duo processes the "remember this device" cookie, then redirects to D2L.
+      // while Duo processes the "remember this device" cookie (can take 20-30s).
       try {
         await page.waitForURL(
           url => !url.hostname.includes("adfs.uwaterloo.ca"),
-          { timeout: 30000 }
+          { timeout: 35000 }
         );
-        // Give D2L a moment to set session cookies after the SAML assertion
         await page.waitForTimeout(2000);
       } catch {
-        // Still on ADFS after 30s — fall through, check cookies below
+        // Still on ADFS after 35s — fall through, check cookies below
       }
 
       const postLoginUrl = page.url();
       console.error(`[AUTH] Post-credential URL for user ${userId}: ${postLoginUrl}`);
+
+      // Verify D2L cookies actually changed — if unchanged, login didn't complete
+      const postCookies = await context.cookies();
+      const sessionVal = postCookies.find(c => c.name === "d2lSessionVal")?.value;
+      const secureVal = postCookies.find(c => c.name === "d2lSecureSessionVal")?.value;
+
+      if (!sessionVal || !secureVal || (sessionVal === preSessionVal && secureVal === preSecureVal)) {
+        const pageTitle = await page.title().catch(() => "unknown");
+        console.error(`[AUTH] Silent re-login: cookies unchanged for user ${userId} — page="${pageTitle}"`);
+        await browser.close();
+        return null;
+      }
+
+      const token = JSON.stringify({ d2lSessionVal: sessionVal, d2lSecureSessionVal: secureVal });
+
+      // Save browser state to S3 for future refreshes
+      try {
+        const tmpStatePath = join(os.tmpdir(), `silent-relogin-state-${userId}.json`);
+        await context.storageState({ path: tmpStatePath });
+        await saveStorageStateToS3(userId, tmpStatePath);
+        await fs.unlink(tmpStatePath).catch(() => {});
+        console.error(`[AUTH] Saved browser storage state to S3 for user ${userId}`);
+      } catch (s3Err: any) {
+        console.error(`[AUTH] Failed to save browser state to S3 for user ${userId}: ${s3Err?.message}`);
+      }
+
+      const sbUrl = process.env.SUPABASE_URL;
+      const sbKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_KEY;
+      if (sbUrl && sbKey) {
+        await fetch(`${sbUrl}/rest/v1/user_credentials`, {
+          method: "POST",
+          headers: {
+            "apikey": sbKey, "Authorization": `Bearer ${sbKey}`,
+            "Content-Type": "application/json",
+            "Prefer": "resolution=merge-duplicates",
+          },
+          body: JSON.stringify({
+            user_id: userId, service: "d2l", host: d2lHost, token,
+            duo_required_at: null, notification_sent_at: null,
+            updated_at: new Date().toISOString(),
+          }),
+        });
+      }
+
+      await browser.close();
+      userTokenCache[userId] = { token, expiresAt: Date.now() + 82800000 };
+      console.error(`[AUTH] Credential silent re-login succeeded for user ${userId}`);
+      return token;
     }
 
-    // Check D2L cookies — most reliable success indicator.
-    // Do this before URL checks: Duo embedded in ADFS keeps URL at adfs.* during MFA,
-    // but D2L session cookies are set once SAML assertion completes.
+    // Landed directly on D2L — extract existing session cookies
     const cookies = await context.cookies();
     const sessionVal = cookies.find(c => c.name === "d2lSessionVal")?.value;
     const secureVal = cookies.find(c => c.name === "d2lSecureSessionVal")?.value;

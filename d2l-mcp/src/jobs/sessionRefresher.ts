@@ -93,32 +93,44 @@ async function attemptCredentialLogin(
       landingUrl.includes("microsoftonline") ||
       landingUrl.includes("sso")
     ) {
+      // Record pre-login D2L cookie values so we can detect whether login actually succeeded
+      const preCookies = await context.cookies();
+      const preSessionVal = preCookies.find(c => c.name === "d2lSessionVal" && c.domain.includes(d2lHost))?.value;
+      const preSecureVal = preCookies.find(c => c.name === "d2lSecureSessionVal" && c.domain.includes(d2lHost))?.value;
+
       console.error(`[REFRESH] Filling credentials for user ${userId}`);
       await page.fill('input[type="text"], input[name="UserName"], input[name="username"]', creds.username).catch(() => {});
 
-      // Look for a Next/Submit button (multi-step ADFS forms)
-      const nextSelectors = [
-        'input[type="submit"]',
-        'button[type="submit"]',
-        '#submitButton',
-        'input[value*="Next" i]',
-        'button:has-text("Next")',
-      ];
-      let clicked = false;
-      for (const sel of nextSelectors) {
-        try {
-          const btn = page.locator(sel).first();
-          if (await btn.isVisible({ timeout: 1000 })) {
-            await btn.click();
-            clicked = true;
-            await page.waitForTimeout(2000);
-            break;
-          }
-        } catch { continue; }
-      }
-      if (!clicked) {
-        await page.keyboard.press("Enter");
-        await page.waitForTimeout(2000);
+      // If password field is already visible (single-page ADFS form), skip the "Next" step.
+      // If not visible, we need to advance to the password page first.
+      const passwordVisible = await page.locator('input[type="password"]').isVisible({ timeout: 500 }).catch(() => false);
+      if (!passwordVisible) {
+        // Multi-step form: click a specific Next/Continue button (NOT a generic submit,
+        // which would submit the form with only the username filled).
+        const nextSelectors = [
+          'input[value*="Next" i]',
+          'button:has-text("Next")',
+          'button:has-text("Continue")',
+        ];
+        let clicked = false;
+        for (const sel of nextSelectors) {
+          try {
+            const btn = page.locator(sel).first();
+            if (await btn.isVisible({ timeout: 1000 })) {
+              await btn.click();
+              clicked = true;
+              break;
+            }
+          } catch { continue; }
+        }
+        if (!clicked) {
+          // Press Enter on the username field specifically (not a global keyboard event)
+          await page.locator('input[name="UserName"], input[type="text"]').first().press("Enter").catch(() => {
+            page.keyboard.press("Enter");
+          });
+        }
+        // Wait for password field to appear
+        await page.waitForSelector('input[type="password"]', { timeout: 5000 }).catch(() => {});
       }
 
       await page.fill('input[type="password"], input[name="Password"], input[name="password"]', creds.password).catch(() => {});
@@ -145,29 +157,66 @@ async function attemptCredentialLogin(
         await page.keyboard.press("Enter");
       }
 
-      // Wait up to 30s for navigation away from ADFS.
+      // Wait up to 35s for navigation away from ADFS.
       // UWaterloo embeds Duo MFA within the ADFS flow — the browser stays at adfs.*
-      // while the Duo challenge is processed, which can take 15-25s.
-      // Only after Duo approves (via the "remember this device" cookie in the S3 state)
-      // does ADFS issue the SAML assertion and redirect to D2L.
+      // while Duo processes the "remember this device" cookie (can take 20-30s).
+      // Once Duo approves, ADFS issues the SAML assertion and redirects to D2L.
       try {
         await page.waitForURL(
           url => !url.hostname.includes("adfs.uwaterloo.ca"),
-          { timeout: 30000 }
+          { timeout: 35000 }
         );
         // Give D2L a moment to set session cookies after the SAML assertion
         await page.waitForTimeout(2000);
       } catch {
-        // Still on ADFS after 30s — fall through, check cookies below
+        // Still on ADFS after 35s — fall through, check cookies below
       }
 
       const postLoginUrl = page.url();
       console.error(`[REFRESH] Post-credential URL for user ${userId}: ${postLoginUrl}`);
+
+      // Verify D2L cookies actually changed (new session was established).
+      // If unchanged, the login didn't complete — old cookies from S3 state are not valid.
+      const postCookies = await context.cookies();
+      const postSessionVal = postCookies.find(c => c.name === "d2lSessionVal" && c.domain.includes(d2lHost))?.value;
+      const postSecureVal = postCookies.find(c => c.name === "d2lSecureSessionVal" && c.domain.includes(d2lHost))?.value;
+
+      if (!postSessionVal || !postSecureVal || (postSessionVal === preSessionVal && postSecureVal === preSecureVal)) {
+        const pageTitle = await page.title().catch(() => "unknown");
+        console.error(`[REFRESH] Credential login failed for user ${userId} — cookies unchanged, page="${pageTitle}"`);
+        await browser.close();
+        return null;
+      }
+
+      const token = JSON.stringify({ d2lSessionVal: postSessionVal, d2lSecureSessionVal: postSecureVal });
+
+      // Save browser storage state to S3
+      const tmpStatePath = path.join(os.tmpdir(), `cred-login-state-${userId}.json`);
+      await context.storageState({ path: tmpStatePath });
+      await saveStorageStateToS3(userId, tmpStatePath);
+      await fs.unlink(tmpStatePath).catch(() => {});
+
+      // Upsert fresh token and clear duo_required_at
+      const { error } = await supabase.from("user_credentials").upsert({
+        user_id: userId,
+        service: "d2l",
+        host: d2lHost,
+        token,
+        duo_required_at: null,
+        notification_sent_at: null,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "user_id,service" });
+
+      if (error) {
+        console.error(`[REFRESH] Failed to store credential-login token for user ${userId}:`, error.message);
+      }
+
+      await browser.close();
+      console.error(`[REFRESH] Credential login succeeded for user ${userId}`);
+      return { token, storageStatePath: tmpStatePath };
     }
 
-    // Check D2L cookies — most reliable success indicator.
-    // Do this before URL checks: Duo embedded in ADFS keeps URL at adfs.* during MFA,
-    // but D2L session cookies are set once SAML assertion completes.
+    // If we landed directly on D2L (S3 state had valid D2L cookies), extract them
     const cookies = await context.cookies();
     const sessionVal = cookies.find(c => c.name === "d2lSessionVal" && c.domain.includes(d2lHost))?.value;
     const secureVal = cookies.find(c => c.name === "d2lSecureSessionVal" && c.domain.includes(d2lHost))?.value;
