@@ -21,14 +21,6 @@ type FeedItem = {
   courseId: number
 }
 
-const SAMPLE_COURSES: Course[] = [
-  { id: 1, code: 'MECH 241', name: 'Fluid Mechanics 1',   canAccess: true },
-  { id: 2, code: 'MECH 210', name: 'Mechanics of Solids', canAccess: true },
-  { id: 3, code: 'MECH 228', name: 'Dynamics',            canAccess: true },
-  { id: 4, code: 'MECH 203', name: 'Thermodynamics',      canAccess: true },
-  { id: 5, code: 'APSC 200', name: 'Engineering Design',  canAccess: true },
-  { id: 6, code: 'MECH 273', name: 'Numerical Methods',   canAccess: true },
-]
 
 function buildFeedItems(exams: Exam[], deadlines: Deadline[], courses: Course[]): FeedItem[] {
   const items: FeedItem[] = []
@@ -260,10 +252,11 @@ function AddCourseModal({ onSave, onClose }: {
 
 export default function Dashboard() {
   const { name } = useUser()
-  const [courses,     setCourses]     = useState<Course[]>([])
-  const [manualExtra, setManualExtra] = useState<Course[]>([])
-  const [loading,     setLoading]     = useState(true)
-  const [showAdd,     setShowAdd]     = useState(false)
+  const [courses,      setCourses]      = useState<Course[]>([])
+  const [manualExtra,  setManualExtra]  = useState<Course[]>([])
+  const [loading,      setLoading]      = useState(true)
+  const [onqConnected, setOnqConnected] = useState<boolean | null>(null)
+  const [showAdd,      setShowAdd]      = useState(false)
   const [shortNames,  setShortNames]  = useState<Record<string, string>>({})
   const [exams,       setExams]       = useState<Exam[]>([])
   const [deadlines,   setDeadlines]   = useState<Deadline[]>([])
@@ -283,8 +276,9 @@ export default function Dashboard() {
       fetch('/api/deadlines').then(r => r.json()).catch(() => []),
       fetch('/api/threads').then(r => r.json()).catch(() => []),
     ]).then(([pulled, manual, examData, deadlineData, threadData]) => {
-      const raw  = Array.isArray(pulled) && pulled.length ? pulled : SAMPLE_COURSES
+      const raw  = Array.isArray(pulled) ? pulled : []
       const base = filterActiveCourses(raw)
+      setOnqConnected(raw.length > 0)
       setCourses(base)
       const manualCourses: Course[] = (Array.isArray(manual) ? manual : []).map((m: any) => ({
         id:        m.id,
@@ -346,6 +340,20 @@ export default function Dashboard() {
           <div className={s.coursesScroll}>
             {loading ? (
               <p style={{ fontFamily: 'var(--f-mono)', fontSize: 12, color: 'var(--ink-ghost)' }}>Loading…</p>
+            ) : allCourses.length === 0 && onqConnected === false ? (
+              <div className={s.connectPrompt}>
+                <div className={s.connectPromptIcon}>Q</div>
+                <p className={s.connectPromptTitle}>Connect your OnQ account</p>
+                <p className={s.connectPromptDesc}>Install the Chrome extension and visit OnQ — your courses will appear here automatically.</p>
+                <a
+                  href="https://chromewebstore.google.com"
+                  target="_blank"
+                  rel="noreferrer"
+                  className={s.connectPromptBtn}
+                >
+                  Install Extension →
+                </a>
+              </div>
             ) : allCourses.map((course, i) => {
               const colorIdx = course.isManual && course.colorIdx !== undefined ? course.colorIdx : i
               const color    = getCourseColor(colorIdx)

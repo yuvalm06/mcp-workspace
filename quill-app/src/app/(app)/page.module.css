@@ -594,6 +594,67 @@
 }
 .sbAddLink:hover { color: var(--ink); }
 
+/* ── Connect OnQ empty state ── */
+.connectPrompt {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 22px 24px;
+  background: rgba(228,224,216,0.45);
+  border: 0.5px solid var(--border);
+  border-radius: 14px;
+  max-width: 360px;
+}
+
+.connectPromptIcon {
+  font-family: var(--f-serif);
+  font-size: 18px;
+  font-weight: 300;
+  color: var(--ink-ghost);
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  background: rgba(154,146,132,0.14);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 4px;
+}
+
+.connectPromptTitle {
+  font-family: var(--f-sans);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--ink);
+  line-height: 1.2;
+}
+
+.connectPromptDesc {
+  font-family: var(--f-sans);
+  font-size: 12px;
+  font-weight: 300;
+  color: var(--ink-muted);
+  line-height: 1.5;
+  max-width: 280px;
+}
+
+.connectPromptBtn {
+  margin-top: 4px;
+  font-family: var(--f-sans);
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--ink);
+  background: rgba(24,22,15,0.08);
+  border-radius: 100px;
+  padding: 6px 14px;
+  text-decoration: none;
+  transition: background 0.15s cubic-bezier(0.23, 1, 0.32, 1), transform 0.1s cubic-bezier(0.23, 1, 0.32, 1);
+  display: inline-block;
+}
+.connectPromptBtn:hover { background: rgba(24,22,15,0.14); }
+.connectPromptBtn:active { transform: scale(0.96); }
+
 /* ── Reduced motion ── */
 @media (prefers-reduced-motion: reduce) {
   .folderWrap,

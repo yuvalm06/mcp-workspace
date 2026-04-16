@@ -1,3 +1,4 @@
+git push origin master
 -- PDF content cache: stores extracted text from OnQ PDFs keyed by URL.
 -- Avoids re-downloading the same file on every question.
 create table if not exists pdf_cache (

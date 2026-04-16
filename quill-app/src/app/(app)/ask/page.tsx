@@ -10,7 +10,7 @@ import { useUser } from '@/lib/userContext'
 import s from './page.module.css'
 
 import type { Block, Source } from '@/app/api/ask/route'
-type Message = { role: 'user' | 'quill'; content: string; time: string; sources?: Source[]; blocks?: Block[] }
+type Message = { role: 'user' | 'quill'; content: string; time: string; sources?: Source[]; blocks?: Block[]; _debug?: any }
 type Course = { id: number; name: string; code: string; canAccess?: boolean }
 
 type Thread = {
@@ -76,6 +76,84 @@ function SourcesRow({ sources }: { sources: Source[] }) {
           </a>
         ))}
       </div>
+    </div>
+  )
+}
+
+// ── Dev debug panel ───────────────────────────────────────────────────────────
+
+function DebugPanel({ debug }: { debug: any }) {
+  const [open, setOpen] = useState(false)
+  const ok  = '#3a3'
+  const err = '#c44'
+  const dim = '#888'
+  const row = { display: 'flex', gap: 8, fontSize: 11, fontFamily: 'monospace', lineHeight: '1.6' }
+  const dot = (color: string) => ({ width: 7, height: 7, borderRadius: '50%', background: color, flexShrink: 0, marginTop: 4 })
+
+  return (
+    <div style={{ marginTop: 6, borderTop: '0.5px solid rgba(0,0,0,0.08)', paddingTop: 6 }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        style={{ fontFamily: 'monospace', fontSize: 10, color: dim, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+      >
+        {open ? '▾' : '▸'} dev · context pipeline
+      </button>
+      {open && (
+        <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {/* Session + TOC */}
+          <div style={row}><div style={dot(debug.session === 'ok' ? ok : err)} /><span><b>session</b> {debug.session}</span></div>
+          <div style={row}><div style={dot(debug.toc?.startsWith('ok') ? ok : err)} /><span><b>toc</b> {debug.toc}</span></div>
+          <div style={row}><div style={dot(debug.grades?.includes('items') ? ok : dim)} /><span><b>grades</b> {debug.grades}</span></div>
+          <div style={row}><div style={dot(debug.announcements?.includes('items') ? ok : dim)} /><span><b>news</b> {debug.announcements}</span></div>
+
+          {/* All PDFs found */}
+          {debug.allPdfs?.length > 0 && (
+            <div style={{ marginTop: 4 }}>
+              <div style={{ ...row, color: dim }}><b>all PDFs found ({debug.allPdfs.length})</b></div>
+              {debug.allPdfs.map((p: any, i: number) => (
+                <div key={i} style={{ ...row, color: dim, paddingLeft: 12 }}>
+                  <span>[{p.sourceType}] {p.parentTitle} / {p.title}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Selected PDFs */}
+          {debug.selectedPdfs?.length > 0 && (
+            <div style={{ marginTop: 4 }}>
+              <div style={{ ...row, color: dim }}><b>selected for context ({debug.selectedPdfs.length})</b></div>
+              {debug.selectedPdfs.map((p: any, i: number) => (
+                <div key={i} style={{ ...row, paddingLeft: 12 }}>
+                  <div style={dot(ok)} /><span>[{p.sourceType}] {p.title}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* PDF load results */}
+          {debug.pdfResults?.length > 0 && (
+            <div style={{ marginTop: 4 }}>
+              <div style={{ ...row, color: dim }}><b>pdf load results</b></div>
+              {debug.pdfResults.map((p: any, i: number) => (
+                <div key={i} style={{ ...row, paddingLeft: 12 }}>
+                  <div style={dot(p.error ? err : ok)} />
+                  <span>
+                    {p.title} — {p.error ? `❌ ${p.error}` : `✓ ${p.chars.toLocaleString()} chars${p.cacheHit ? ' (cached)' : ' (downloaded)'}`}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {debug.contextError && (
+            <div style={{ ...row, color: err }}><b>error</b> {debug.contextError}</div>
+          )}
+
+          {debug.allPdfs?.length === 0 && debug.toc?.startsWith('ok') && (
+            <div style={{ ...row, color: err }}>⚠ TOC loaded but no PDFs found — check URL extensions (.pdf) and folder structure</div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -318,18 +396,10 @@ function AskPageInner() {
   const [suggestLoading,  setSuggestLoading]  = useState(false)
   const [threads,      setThreads]      = useState<Thread[]>([])
   const [activeThread, setActiveThread] = useState<string | null>(null)
-  const [courseList,   setCourseList]   = useState<Course[]>([])
+  const [courseList,    setCourseList]    = useState<Course[]>([])
+  const [onqConnected,  setOnqConnected]  = useState<boolean | null>(null) // null = still loading
   const bottomRef       = useRef<HTMLDivElement>(null)
   const loadingThreadRef = useRef(false)
-
-  const SAMPLE_COURSES: Course[] = [
-    { id: 1, code: 'MECH 241', name: 'Fluid Mechanics 1'   },
-    { id: 2, code: 'MECH 210', name: 'Mechanics of Solids' },
-    { id: 3, code: 'MECH 228', name: 'Dynamics'            },
-    { id: 4, code: 'MECH 203', name: 'Thermodynamics'      },
-    { id: 5, code: 'APSC 200', name: 'Engineering Design'  },
-    { id: 6, code: 'MECH 273', name: 'Numerical Methods'   },
-  ]
 
   // Load thread list and course list on mount
   useEffect(() => {
@@ -340,10 +410,11 @@ function AskPageInner() {
     fetch('/api/courses')
       .then(r => r.ok ? r.json() : [])
       .then((courses: Course[]) => {
-        const active = filterActiveCourses(Array.isArray(courses) && courses.length ? courses : SAMPLE_COURSES)
+        const active = filterActiveCourses(Array.isArray(courses) && courses.length ? courses : [])
         setCourseList(active)
+        setOnqConnected(active.length > 0)
       })
-      .catch(() => { setCourseList(filterActiveCourses(SAMPLE_COURSES)) })
+      .catch(() => { setCourseList([]); setOnqConnected(false) })
   }, [])
 
   // Reset conversation and drawer when course changes (skip if triggered by loadThread)
@@ -358,18 +429,15 @@ function AskPageInner() {
     fetch('/api/courses')
       .then(r => r.json())
       .then((courses: Course[]) => {
-        const list = filterActiveCourses(Array.isArray(courses) && courses.length ? courses : SAMPLE_COURSES)
+        const list = filterActiveCourses(Array.isArray(courses) ? courses : [])
         setCourseList(list)
         const idx  = list.findIndex(c => String(c.id) === courseId)
         setCourse(idx >= 0 ? list[idx] : null)
         setCourseColorIdx(idx >= 0 ? idx : 0)
       })
       .catch(() => {
-        const list = filterActiveCourses(SAMPLE_COURSES)
-        setCourseList(list)
-        const idx = list.findIndex(c => String(c.id) === courseId)
-        setCourse(idx >= 0 ? list[idx] : null)
-        setCourseColorIdx(idx >= 0 ? idx : 0)
+        setCourseList([])
+        setCourse(null)
       })
   }, [courseId])
 
@@ -381,7 +449,7 @@ function AskPageInner() {
 
     // Set course context directly from thread metadata (no URL change needed)
     if (thread.course_id && thread.course_code) {
-      const list = courseList.length ? courseList : SAMPLE_COURSES
+      const list = courseList
       const idx = list.findIndex(c => c.code === thread.course_code)
       setCourse({
         id:   Number(thread.course_id),
@@ -454,7 +522,7 @@ function AskPageInner() {
       try { data = await res.json() } catch { /* non-JSON response */ }
       if (!res.ok) console.error('[ask] API error', res.status, data)
       const reply = data.reply ?? (res.ok ? 'Sorry, I had trouble responding.' : `Error ${res.status} — please try again.`)
-      const quillMsg: Message = { role: 'quill', content: reply, time: nowTime(), sources: data.sources ?? [], blocks: data.blocks ?? undefined }
+      const quillMsg: Message = { role: 'quill', content: reply, time: nowTime(), sources: data.sources ?? [], blocks: data.blocks ?? undefined, _debug: data._debug }
       const withReply: Message[] = [...nextMessages, quillMsg]
       setMessages(withReply)
       fetchSuggestions(withReply)
@@ -597,8 +665,29 @@ function AskPageInner() {
             </div>
           )}
 
-          {/* Generic landing — no course */}
-          {!inConversation && !course && (
+          {/* Not connected — prompt to install extension */}
+          {!inConversation && !course && onqConnected === false && (
+            <div className={s.connectState}>
+              <div className={s.connectIcon}>Q</div>
+              <h2 className={s.connectTitle}>Connect your OnQ account</h2>
+              <p className={s.connectDesc}>
+                Quill reads your real course materials, grades, and announcements directly from OnQ.
+                Install the Chrome extension to get started.
+              </p>
+              <a
+                href="https://chromewebstore.google.com"
+                target="_blank"
+                rel="noopener noreferrer"
+                className={s.connectBtn}
+              >
+                Install Chrome Extension
+              </a>
+              <p className={s.connectSub}>After installing, visit OnQ and the extension will connect automatically.</p>
+            </div>
+          )}
+
+          {/* Generic landing — connected but no course selected */}
+          {!inConversation && !course && onqConnected === true && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
               <p className={s.emptyLabel}>Suggested</p>
               {GENERIC_SUGGESTED.map(t => (
@@ -632,6 +721,7 @@ function AskPageInner() {
                 {m.role === 'quill' && m.sources && m.sources.length > 0 && (
                   <SourcesRow sources={m.sources} />
                 )}
+                {m.role === 'quill' && m._debug && <DebugPanel debug={m._debug} />}
                 <p className={s.bubbleTime}>{m.time}</p>
               </div>
             </div>
@@ -658,7 +748,7 @@ function AskPageInner() {
             <button className={`${s.courseChip} ${s.courseChipQuill}`} onClick={() => router.push('/ask')}>
               Ask Quill
             </button>
-            {(courseList.length ? courseList : SAMPLE_COURSES).map((c, i) => {
+            {courseList.map((c, i) => {
               const color = getCourseColor(i)
               return (
                 <button
@@ -730,8 +820,7 @@ function AskPageInner() {
                 return !q || (t.course_code ?? '').toLowerCase().includes(q) || t.title.toLowerCase().includes(q)
               })
               .map((t, i) => {
-                const list = courseList.length ? courseList : SAMPLE_COURSES
-                const courseIdx = list.findIndex(c => c.code === t.course_code)
+                const courseIdx = courseList.findIndex(c => c.code === t.course_code)
                 const c = getCourseColor(courseIdx >= 0 ? courseIdx : 0)
                 return (
                   <div

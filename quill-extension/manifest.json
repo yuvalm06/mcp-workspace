@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "Quill",
+  "version": "1.1.0",
+  "description": "Connects your OnQ account to Quill.",
+  "permissions": [
+    "cookies",
+    "storage",
+    "alarms",
+    "tabs"
+  ],
+  "host_permissions": [
+    "https://quill-app-new.vercel.app/*",
+    "https://onq.queensu.ca/*",
+    "http://localhost:3001/*",
+    "http://localhost:3000/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Quill"
+  }
+}

@@ -2,8 +2,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getUserFromRequest, unauthorized } from '@/lib/auth'
 import { supabaseServer } from '@/lib/supabaseServer'
 
-const MCP_URL = process.env.MCP_URL || 'http://localhost:3000/mcp'
-
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export type SourceType = 'LECTURE' | 'PAST EXAM' | 'TUTORIAL' | 'ASSIGNMENT' | 'FORMULA SHEET' | 'LAB' | 'OTHER'
@@ -23,62 +21,131 @@ export interface Source {
   title: string
 }
 
-// ── MCP helpers ──────────────────────────────────────────────────────────────
+// ── D2L direct client ─────────────────────────────────────────────────────────
 
-async function initMcpSession(): Promise<string | null> {
-  const res = await fetch(MCP_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json, text/event-stream' },
-    body: JSON.stringify({ jsonrpc: '2.0', method: 'initialize', params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'quill-app', version: '1.0' } }, id: 1 }),
-  })
-  return res.headers.get('mcp-session-id')
+interface D2LSession { cookieHeader: string; host: string }
+
+const D2L_API = '1.57'
+
+async function getD2LSession(userId: string): Promise<D2LSession | null> {
+  const { data, error } = await supabaseServer()
+    .from('user_credentials')
+    .select('token, host')
+    .eq('user_id', userId)
+    .eq('service', 'd2l')
+    .single()
+  if (error || !data) return null
+  try {
+    const { d2lSessionVal, d2lSecureSessionVal } = JSON.parse(data.token as string)
+    if (!d2lSessionVal || !d2lSecureSessionVal) return null
+    return {
+      cookieHeader: `d2lSessionVal=${d2lSessionVal}; d2lSecureSessionVal=${d2lSecureSessionVal}`,
+      host: (data.host as string) || 'onq.queensu.ca',
+    }
+  } catch { return null }
 }
 
-async function mcpCall(sessionId: string, userId: string, name: string, args: Record<string, unknown>): Promise<string | null> {
-  const res = await fetch(MCP_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Accept': 'application/json, text/event-stream',
-      'mcp-session-id': sessionId,
-      'x-user-id': userId,
-    },
-    body: JSON.stringify({ jsonrpc: '2.0', method: 'tools/call', params: { name, arguments: args }, id: Math.floor(Math.random() * 100000) }),
-  })
-  const text = await res.text()
-
-  // Handle SSE stream (data: lines) or plain JSON response
-  const lines = text.split('\n').filter(l => l.startsWith('data:'))
-  const candidates = lines.length > 0
-    ? [...lines].reverse().map(l => { try { return JSON.parse(l.slice(5)) } catch { return null } }).filter(Boolean)
-    : (() => { try { return [JSON.parse(text)] } catch { return [] } })()
-
-  for (const json of candidates) {
-    if (json.result?.content?.[0]?.text) return json.result.content[0].text
-    if (json.error) console.log(`[MCP] ${name} error:`, JSON.stringify(json.error).slice(0, 200))
+async function d2lGet(session: D2LSession, path: string): Promise<any> {
+  const url = `https://${session.host}${path}`
+  const res = await fetch(url, { headers: { Cookie: session.cookieHeader } })
+  if (!res.ok) {
+    console.error('[d2l]', path, res.status)
+    return null
   }
-  return null
+  return res.json()
 }
 
-// ── PDF cache ────────────────────────────────────────────────────────────────
+// ── PDF cache + download ──────────────────────────────────────────────────────
 
-// Returns extracted PDF text from Supabase cache, or downloads + caches it via MCP.
-async function getPdfText(sessionId: string, userId: string, url: string): Promise<string | null> {
+interface PdfResult { cacheHit: boolean; chars: number; error?: string }
+
+async function getPdfText(
+  session: D2LSession,
+  url: string,
+  debugOut?: PdfResult
+): Promise<string | null> {
   const sb = supabaseServer()
 
-  // 1. Cache hit — return stored text immediately
+  // 1. Cache hit
   const { data } = await sb.from('pdf_cache').select('text').eq('url', url).single()
-  if (data?.text) return data.text
+  if (data?.text) {
+    if (debugOut) { debugOut.cacheHit = true; debugOut.chars = data.text.length }
+    return data.text
+  }
 
-  // 2. Cache miss — download via MCP
-  const dlResult = await mcpCall(sessionId, userId, 'download_file', { url })
-  if (!dlResult) return null
+  // 2. Download with D2L session cookies
+  const fullUrl = url.startsWith('http') ? url : `https://${session.host}${url}`
+  let res: Response
+  try {
+    res = await fetch(fullUrl, { headers: { Cookie: session.cookieHeader }, redirect: 'follow' })
+  } catch (err: any) {
+    const msg = `fetch failed: ${err?.message}`
+    console.error('[pdf]', msg)
+    if (debugOut) debugOut.error = msg
+    return null
+  }
+  if (!res.ok) {
+    const msg = `HTTP ${res.status}`
+    console.error('[pdf] download error', msg, fullUrl)
+    if (debugOut) debugOut.error = msg
+    return null
+  }
+  const contentType = res.headers.get('content-type') || ''
+  if (contentType.includes('text/html')) {
+    const msg = 'got HTML — session expired?'
+    console.error('[pdf]', msg)
+    if (debugOut) debugOut.error = msg
+    return null
+  }
 
-  const start = dlResult.indexOf('--- File Content ---')
-  const text  = start !== -1 ? dlResult.slice(start + 20) : dlResult
-  if (!text.trim()) return null
+  // 3. Extract content via Gemini Flash vision (via OpenRouter)
+  //    Handles typed slides AND handwritten notes — no image conversion needed
+  let text: string | null = null
+  try {
+    const buf = Buffer.from(await res.arrayBuffer())
+    const base64 = buf.toString('base64')
 
-  // 3. Store in cache (fire-and-forget — don't block the response)
+    const visionRes = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'google/gemini-flash-1.5',
+        messages: [{
+          role: 'user',
+          content: [
+            {
+              type: 'image_url',
+              image_url: { url: `data:application/pdf;base64,${base64}` },
+            },
+            {
+              type: 'text',
+              text: 'Extract all content from this document. Include all text, equations, diagrams described in words, and any handwritten notes. Be thorough and preserve structure.',
+            },
+          ],
+        }],
+      }),
+    })
+
+    const visionData = await visionRes.json()
+    text = visionData.choices?.[0]?.message?.content?.trim() || null
+    if (!visionRes.ok) throw new Error(visionData.error?.message || `HTTP ${visionRes.status}`)
+  } catch (err: any) {
+    const msg = `vision error: ${err?.message}`
+    console.error('[pdf]', msg)
+    if (debugOut) debugOut.error = msg
+    return null
+  }
+  if (!text) {
+    if (debugOut) debugOut.error = 'empty text after parse'
+    return null
+  }
+
+  if (debugOut) { debugOut.cacheHit = false; debugOut.chars = text.length }
+
+  // 4. Cache for next time (fire-and-forget)
   sb.from('pdf_cache').upsert({ url, text }).then(() => {})
 
   return text
@@ -145,15 +212,15 @@ function collectCoursePdfs(modules: any[]): PdfCandidate[] {
   return pdfs
 }
 
-// Extract a week number from a string like "week 9", "week9", "Week 11", "wk 3"
+// Extract a week number — works on both natural language ("week 9") and filenames ("Week4_notes")
 function extractWeekNumber(s: string): number | null {
-  const m = s.toLowerCase().match(/\b(?:week|wk)[\s_-]?(\d{1,2})\b/)
+  const m = s.toLowerCase().match(/(?:week|wk)[_\s-]?(\d{1,2})/)
   return m ? parseInt(m[1], 10) : null
 }
 
-// Extract a lecture number from a string like "lecture 10", "lec 10", "lecture10"
+// Extract a lecture number — works on both "lecture 10" and filenames like "10_Lecture10_MECH241"
 function extractLectureNumber(s: string): number | null {
-  const m = s.toLowerCase().match(/\b(?:lecture|lec|lect)[\s_-]?(\d{1,2})\b/)
+  const m = s.toLowerCase().match(/(?:lecture|lec|lect)[_\s-]?(\d{1,2})/)
   return m ? parseInt(m[1], 10) : null
 }
 
@@ -174,8 +241,8 @@ function scoreCandidate(c: PdfCandidate, queryWeek: number | null, queryLecture:
   if (queryLecture !== null) {
     const candLecture = extractLectureNumber(t)
     if (candLecture === queryLecture) score += 150
-    // Also check if the lecture number appears as a standalone number in filename/title
-    else if (new RegExp(`\\b${queryLecture}\\b`).test(t)) score += 80
+    // Fallback: number appears right after "lecture" keyword anywhere in title/url
+    // Use extractLectureNumber result only — avoids false matches on "Week 10" for lecture 10
   }
 
   // Keyword overlap — keep words ≥ 2 chars so numbers like "10" aren't dropped
@@ -325,87 +392,118 @@ export async function POST(req: NextRequest) {
   let courseContext = ''
   const loadedSources: Source[] = []
 
+  // Debug info returned to the client for dev inspection
+  const debug: {
+    session: string
+    toc: string
+    allPdfs: { title: string; parentTitle: string; sourceType: string; url: string }[]
+    selectedPdfs: { title: string; sourceType: string; url: string }[]
+    pdfResults: { title: string; url: string; cacheHit: boolean; chars: number; error?: string }[]
+    grades: string
+    announcements: string
+    contextError?: string
+  } = {
+    session: 'not attempted',
+    toc: 'not attempted',
+    allPdfs: [],
+    selectedPdfs: [],
+    pdfResults: [],
+    grades: 'not attempted',
+    announcements: 'not attempted',
+  }
+
   if (courseId) {
     try {
-      const sessionId = await initMcpSession()
-      if (sessionId) {
-        const [contentRaw, gradesRaw, announcementsRaw] = await Promise.all([
-          mcpCall(sessionId, user.id, 'get_course_content',  { orgUnitId: Number(courseId) }),
-          mcpCall(sessionId, user.id, 'get_my_grades',       { orgUnitId: Number(courseId) }),
-          mcpCall(sessionId, user.id, 'get_announcements',   { orgUnitId: Number(courseId) }),
+      const d2l = await getD2LSession(user.id)
+      debug.session = d2l ? 'ok' : 'missing — no credentials in Supabase'
+
+      if (d2l) {
+        const orgUnitId = Number(courseId)
+        const [tocRaw, gradesRaw, newsRaw] = await Promise.all([
+          d2lGet(d2l, `/d2l/api/le/${D2L_API}/${orgUnitId}/content/toc`),
+          d2lGet(d2l, `/d2l/api/le/${D2L_API}/${orgUnitId}/grades/values/myGradeValues/`),
+          d2lGet(d2l, `/d2l/api/le/${D2L_API}/${orgUnitId}/news/`),
         ])
 
+        // Marshal TOC
         let modules: any[] = []
-        if (contentRaw) {
-          try {
-            modules = JSON.parse(contentRaw)
-            const outline = flattenOutline(modules)
-            if (outline) courseContext += `\nCOURSE OUTLINE:\n${outline}`
-          } catch {}
+        if (tocRaw?.Modules) {
+          function marshalMod(m: any): any {
+            return {
+              title: m.Title,
+              topics: (m.Topics || []).map((t: any) => ({ title: t.Title, url: t.Url || '' })),
+              modules: (m.Modules || []).map(marshalMod),
+            }
+          }
+          modules = tocRaw.Modules.map(marshalMod)
+          const outline = flattenOutline(modules)
+          if (outline) courseContext += `\nCOURSE OUTLINE:\n${outline}`
+          debug.toc = `ok — ${modules.length} top-level modules`
+        } else {
+          debug.toc = tocRaw ? `no Modules key — got: ${JSON.stringify(tocRaw).slice(0, 120)}` : 'null response'
         }
 
-        if (gradesRaw) {
-          try {
-            const grades = JSON.parse(gradesRaw)
-            const gradeLines = grades
-              .filter((g: any) => g.percentage != null)
-              .map((g: any) => `- ${g.name}: ${g.percentage}%`)
-              .join('\n')
-            if (gradeLines) courseContext += `\n\nSTUDENT GRADES:\n${gradeLines}`
-          } catch {}
+        if (Array.isArray(gradesRaw)) {
+          const gradeLines = gradesRaw
+            .filter((g: any) => g.DisplayedGrade?.trim())
+            .map((g: any) => `- ${g.GradeObjectName}: ${g.DisplayedGrade}`)
+            .join('\n')
+          if (gradeLines) courseContext += `\n\nSTUDENT GRADES:\n${gradeLines}`
+          debug.grades = `${gradesRaw.length} items`
+        } else {
+          debug.grades = `non-array: ${JSON.stringify(gradesRaw).slice(0, 80)}`
         }
 
-        if (announcementsRaw) {
-          try {
-            const announcements = JSON.parse(announcementsRaw)
-            const lines = (Array.isArray(announcements) ? announcements : [])
-              .slice(0, 5) // most recent 5
-              .map((a: any) => {
-                const date = a.createdDate ? ` (${new Date(a.createdDate).toLocaleDateString()})` : ''
-                const body = (a.body ?? a.text ?? '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 800)
-                return `### ${a.title ?? 'Announcement'}${date}\n${body}`
-              })
-              .join('\n\n')
-            if (lines) courseContext += `\n\nCOURSE ANNOUNCEMENTS (instructor posts):\n${lines}`
-          } catch {}
+        if (Array.isArray(newsRaw)) {
+          const lines = newsRaw.slice(0, 5).map((a: any) => {
+            const date = a.CreatedDate ? ` (${new Date(a.CreatedDate).toLocaleDateString()})` : ''
+            const body = (a.Body?.Text || a.Body?.Html || '')
+              .replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 800)
+            return `### ${a.Title ?? 'Announcement'}${date}\n${body}`
+          }).join('\n\n')
+          if (lines) courseContext += `\n\nCOURSE ANNOUNCEMENTS (instructor posts):\n${lines}`
+          debug.announcements = `${newsRaw.length} items`
+        } else {
+          debug.announcements = `non-array: ${JSON.stringify(newsRaw).slice(0, 80)}`
         }
 
         if (modules.length > 0) {
-          // For email mode, pull the syllabus first to get instructor name/contact info
           if (mode === 'email') {
             const syllabusUrl = findSyllabus(modules)
             if (syllabusUrl) {
-              try {
-                const text = await getPdfText(sessionId, user.id, syllabusUrl)
-                if (text) courseContext += `\n\nCOURSE SYLLABUS (use this to find instructor name, email, office hours):\n${text.slice(0, 2000)}`
-              } catch {}
+              const text = await getPdfText(d2l, syllabusUrl)
+              if (text) courseContext += `\n\nCOURSE SYLLABUS (use this to find instructor name, email, office hours):\n${text.slice(0, 2000)}`
             }
           }
 
-          const candidates     = collectCoursePdfs(modules)
-          const selected       = selectSources(candidates, 3, message)
+          const candidates = collectCoursePdfs(modules)
+          const selected   = selectSources(candidates, 3, message)
           const charsPerSource = isOverviewQuery ? 6000 : 2500
+
+          debug.allPdfs      = candidates.map(c => ({ title: c.title, parentTitle: c.parentTitle, sourceType: c.sourceType, url: c.url }))
+          debug.selectedPdfs = selected.map(c => ({ title: c.title, sourceType: c.sourceType, url: c.url }))
 
           let pdfContent = ''
           for (const candidate of selected) {
-            try {
-              const text = await getPdfText(sessionId, user.id, candidate.url)
-              if (text) {
-                const filename = candidate.url.split('/').pop() || 'file.pdf'
-                const label = candidate.title
-                  ? `${candidate.sourceType} — ${candidate.parentTitle ? `${candidate.parentTitle} / ` : ''}${candidate.title}`
-                  : candidate.sourceType
-                pdfContent += `\n\n[${label}] ${filename}:\n${text.slice(0, charsPerSource)}`
-                const fullUrl = candidate.url.startsWith('http') ? candidate.url : `https://onq.queensu.ca${candidate.url}`
-                loadedSources.push({ filename, url: fullUrl, sourceType: candidate.sourceType, title: candidate.title })
-              }
-            } catch {}
+            const pdfDbg: PdfResult = { cacheHit: false, chars: 0 }
+            const text = await getPdfText(d2l, candidate.url, pdfDbg)
+            debug.pdfResults.push({ title: candidate.title, url: candidate.url, ...pdfDbg })
+            if (text) {
+              const filename = candidate.url.split('/').pop() || 'file.pdf'
+              const label = candidate.title
+                ? `${candidate.sourceType} — ${candidate.parentTitle ? `${candidate.parentTitle} / ` : ''}${candidate.title}`
+                : candidate.sourceType
+              pdfContent += `\n\n[${label}] ${filename}:\n${text.slice(0, charsPerSource)}`
+              const fullUrl = candidate.url.startsWith('http') ? candidate.url : `https://${d2l.host}${candidate.url}`
+              loadedSources.push({ filename, url: fullUrl, sourceType: candidate.sourceType, title: candidate.title })
+            }
           }
           if (pdfContent) courseContext += `\n\nCOURSE MATERIALS:\n${pdfContent}`
         }
       }
-    } catch {
-      // Non-fatal
+    } catch (err: any) {
+      debug.contextError = err?.message || String(err)
+      console.error('[ask] course context error:', err)
     }
   }
 
@@ -595,5 +693,5 @@ ${sourceList}${courseContext}`
     return inText || inCite
   })
 
-  return NextResponse.json({ reply: text, blocks, sources: referencedSources })
+  return NextResponse.json({ reply: text, blocks, sources: referencedSources, _debug: debug })
 }
