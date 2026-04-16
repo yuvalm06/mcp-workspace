@@ -1,0 +1,18 @@
+[
+  { "courseCode": "MECH 210", "title": "MECH 210", "type": "lecture",  "days": [0],    "startTime": "08:30", "endTime": "09:30", "biweekly": false, "notes": "Biosciences Complex 1101" },
+  { "courseCode": "APSC 200", "title": "APSC 200", "type": "lecture",  "days": [0],    "startTime": "09:30", "endTime": "10:30", "biweekly": false, "notes": "Biosciences Complex 1101" },
+  { "courseCode": "MECH 241", "title": "MECH 241", "type": "tutorial", "days": [0],    "startTime": "13:30", "endTime": "14:30", "biweekly": false, "notes": "Chernoff Hall 117" },
+  { "courseCode": "APSC 200", "title": "APSC 200", "type": "studio",   "days": [0, 2], "startTime": "14:30", "endTime": "16:30", "biweekly": false, "notes": "Mitchell Hall 225/235/215" },
+  { "courseCode": "MECH 241", "title": "MECH 241", "type": "lecture",  "days": [0],    "startTime": "16:30", "endTime": "17:30", "biweekly": false, "notes": "Biosciences Complex 1101" },
+  { "courseCode": "MECH 210", "title": "MECH 210", "type": "tutorial", "days": [1],    "startTime": "08:30", "endTime": "10:30", "biweekly": false, "notes": "Mitchell Hall 215/235/225" },
+  { "courseCode": "MECH 210", "title": "MECH 210", "type": "lecture",  "days": [1],    "startTime": "10:30", "endTime": "11:30", "biweekly": false, "notes": "Biosciences Complex 1101" },
+  { "courseCode": "MECH 241", "title": "MECH 241", "type": "lecture",  "days": [1],    "startTime": "12:30", "endTime": "13:30", "biweekly": false, "notes": "Dunning Hall AUD" },
+  { "courseCode": "MECH 210", "title": "MECH 210", "type": "lab",      "days": [1],    "startTime": "13:30", "endTime": "15:30", "biweekly": false, "notes": "Mitchell Hall 211" },
+  { "courseCode": "MECH 203", "title": "MECH 203", "type": "lecture",  "days": [2],    "startTime": "10:30", "endTime": "11:30", "biweekly": false, "notes": "Biosciences Complex 1101" },
+  { "courseCode": "MECH 203", "title": "MECH 203", "type": "lab",      "days": [3],    "startTime": "09:30", "endTime": "11:30", "biweekly": false, "notes": "Mitchell Hall 225/235/215" },
+  { "courseCode": "MECH 241", "title": "MECH 241", "type": "lecture",  "days": [3],    "startTime": "11:30", "endTime": "12:30", "biweekly": false, "notes": "Dunning Hall AUD" },
+  { "courseCode": "MECH 273", "title": "MECH 273", "type": "lab",      "days": [3],    "startTime": "12:30", "endTime": "14:30", "biweekly": false, "notes": "Nicol Hall 201" },
+  { "courseCode": "MECH 203", "title": "MECH 203", "type": "tutorial", "days": [3],    "startTime": "14:30", "endTime": "15:30", "biweekly": false, "notes": "Biosciences Complex 1101" },
+  { "courseCode": "MECH 228", "title": "MECH 228", "type": "lab",      "days": [3],    "startTime": "15:30", "endTime": "17:30", "biweekly": false, "notes": "Mitchell Hall 215/235/225" },
+  { "courseCode": "MECH 228", "title": "MECH 228", "type": "lab",      "days": [4],    "startTime": "08:30", "endTime": "10:30", "biweekly": false, "notes": "Mitchell Hall 215/225/235" }
+]

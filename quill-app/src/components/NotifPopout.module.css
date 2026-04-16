@@ -1,0 +1,210 @@
+/* ── Container ── */
+.popout {
+  position: absolute;
+  left: 58px;
+  bottom: -4px;
+  width: 272px;
+  background: rgba(250, 248, 244, 0.98);
+  backdrop-filter: blur(10px);
+  border: 0.5px solid rgba(154, 146, 132, 0.22);
+  border-radius: 14px;
+  box-shadow:
+    0 16px 48px rgba(24, 22, 15, 0.13),
+    0 2px 8px rgba(24, 22, 15, 0.06);
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-6px);
+  transition: opacity 0.16s ease-out, transform 0.16s ease-out;
+  z-index: 100;
+}
+
+.open {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(0);
+}
+
+/* ── Arrow ── */
+.arrow {
+  position: absolute;
+  left: -5px;
+  bottom: 18px;
+  width: 10px;
+  height: 10px;
+  background: rgba(250, 248, 244, 0.98);
+  border-left: 0.5px solid rgba(154, 146, 132, 0.22);
+  border-bottom: 0.5px solid rgba(154, 146, 132, 0.22);
+  transform: rotate(45deg);
+}
+
+/* ── Header ── */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px 10px;
+  border-bottom: 0.5px solid rgba(154, 146, 132, 0.14);
+}
+
+.headerLabel {
+  font-family: var(--f-mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-ghost);
+}
+
+/* ── Question list ── */
+.list {
+  display: flex;
+  flex-direction: column;
+  max-height: 340px;
+  overflow-y: auto;
+}
+.list::-webkit-scrollbar { display: none; }
+
+/* ── Card ── */
+.card {
+  padding: 12px 14px 11px;
+  border-bottom: 0.5px solid rgba(154, 146, 132, 0.10);
+  transition: opacity 0.2s;
+}
+.card:last-child { border-bottom: none; }
+
+.cardDone { opacity: 0.55; }
+
+/* ── Quill message row ── */
+.msgRow {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.avatar {
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  background: rgba(58, 95, 158, 0.12);
+  color: #3A5F9E;
+  font-family: var(--f-mono);
+  font-size: 9px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.msgBody {
+  flex: 1;
+  min-width: 0;
+}
+
+.msgText {
+  font-family: var(--f-sans);
+  font-size: 12px;
+  font-weight: 300;
+  color: var(--ink);
+  line-height: 1.45;
+  margin-bottom: 3px;
+}
+
+.msgTime {
+  font-family: var(--f-mono);
+  font-size: 9px;
+  color: var(--ink-ghost);
+  letter-spacing: 0.03em;
+}
+
+/* ── Response area ── */
+.inputRow {
+  margin-top: 9px;
+  margin-left: 28px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+/* Choice pills */
+.choiceBtn {
+  font-family: var(--f-sans);
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--ink-muted);
+  background: rgba(154, 146, 132, 0.10);
+  border: 0.5px solid rgba(154, 146, 132, 0.22);
+  border-radius: 100px;
+  padding: 4px 11px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+  white-space: nowrap;
+}
+.choiceBtn:hover {
+  background: rgba(58, 95, 158, 0.10);
+  border-color: rgba(58, 95, 158, 0.28);
+  color: #3A5F9E;
+}
+
+/* Text / date input row */
+.textRow {
+  display: flex;
+  gap: 5px;
+  width: 100%;
+}
+
+.textInput {
+  flex: 1;
+  font-family: var(--f-sans);
+  font-size: 11.5px;
+  font-weight: 300;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.75);
+  border: 0.5px solid rgba(154, 146, 132, 0.28);
+  border-radius: 8px;
+  padding: 5px 9px;
+  outline: none;
+  transition: border-color 0.12s;
+}
+.textInput:focus { border-color: rgba(58, 95, 158, 0.45); }
+.textInput::placeholder { color: var(--ink-ghost); }
+
+.sendBtn {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: none;
+  background: #3A5F9E;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: opacity 0.12s;
+}
+.sendBtn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+.sendBtn:not(:disabled):hover { opacity: 0.82; }
+
+/* ── Answer bubble ── */
+.answerRow {
+  margin-top: 7px;
+  margin-left: 28px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.answerText {
+  font-family: var(--f-sans);
+  font-size: 11.5px;
+  font-weight: 400;
+  color: #3A5F9E;
+  background: rgba(58, 95, 158, 0.09);
+  border-radius: 8px 8px 2px 8px;
+  padding: 4px 10px;
+  max-width: 80%;
+}

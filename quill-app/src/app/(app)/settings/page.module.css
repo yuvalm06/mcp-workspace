@@ -1,0 +1,158 @@
+.main {
+  flex: 1;
+  padding: 28px 32px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+.main::-webkit-scrollbar { display: none; }
+
+.heading { flex-shrink: 0; }
+.eyebrow {
+  font-family: var(--f-mono);
+  font-size: 11px;
+  color: var(--ink-ghost);
+  letter-spacing: 0.06em;
+  margin-bottom: 6px;
+}
+.title {
+  font-family: var(--f-serif);
+  font-size: 42px;
+  font-weight: 300;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  color: var(--ink);
+}
+
+/* Section */
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 520px;
+}
+.sectionLabel {
+  font-family: var(--f-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-ghost);
+  margin-bottom: 10px;
+}
+
+/* Setting row */
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  background: rgba(255,255,255,0.7);
+  border: 0.5px solid var(--border);
+  border-radius: 10px;
+  gap: 16px;
+}
+.row + .row { margin-top: 2px; }
+
+html.dark .row { background: rgba(255,255,255,0.04); }
+
+.rowInfo { flex: 1; }
+.rowName {
+  font-family: var(--f-sans);
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--ink);
+  margin-bottom: 2px;
+}
+.rowDesc {
+  font-family: var(--f-sans);
+  font-size: 11px;
+  font-weight: 300;
+  color: var(--ink-muted);
+  line-height: 1.4;
+}
+
+/* Toggle */
+.toggle {
+  width: 36px;
+  height: 20px;
+  border-radius: 10px;
+  background: rgba(154,146,132,0.28);
+  position: relative;
+  cursor: pointer;
+  flex-shrink: 0;
+  border: none;
+  transition: background 0.2s ease;
+}
+.toggle::after {
+  content: '';
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  background: #fff;
+  border-radius: 50%;
+  top: 3px;
+  left: 3px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+  transition: transform 0.2s ease;
+}
+.toggleOn { background: var(--accent); }
+.toggleOn::after { transform: translateX(16px); }
+
+/* Misc controls */
+.connectedBadge {
+  font-family: var(--f-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: #4A8C5E;
+  background: rgba(74,140,94,0.10);
+  border-radius: 100px;
+  padding: 4px 10px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.valueText {
+  font-family: var(--f-sans);
+  font-size: 12px;
+  font-weight: 300;
+  color: var(--accent);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.nameControl {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-shrink: 0;
+}
+.nameInput {
+  font-family: var(--f-sans);
+  font-size: 12px;
+  font-weight: 300;
+  color: var(--ink);
+  background: var(--bg);
+  border: 0.5px solid var(--border);
+  border-radius: 8px;
+  padding: 5px 10px;
+  outline: none;
+  width: 160px;
+  transition: border-color 0.12s;
+}
+.nameInput:focus { border-color: rgba(58,95,158,0.4); }
+.nameInput::placeholder { color: var(--ink-ghost); }
+.nameSaveBtn {
+  font-family: var(--f-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+  background: rgba(58,95,158,0.08);
+  border: 0.5px solid rgba(58,95,158,0.2);
+  border-radius: 100px;
+  padding: 5px 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s, opacity 0.12s;
+}
+.nameSaveBtn:disabled { opacity: 0.4; cursor: default; }
+.nameSaveBtn:not(:disabled):hover { background: rgba(58,95,158,0.14); }

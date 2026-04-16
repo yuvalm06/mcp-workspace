@@ -1,0 +1,6 @@
+.btn {
+  transition: color 0.14s;
+}
+.btn:hover {
+  color: #3A5F9E !important;
+}

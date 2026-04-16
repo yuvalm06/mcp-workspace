@@ -1,0 +1,56 @@
+/* Fonts loaded via next/font in layout.tsx — no @import needed */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg:        #F7F4EF;
+  --ink:       #1A1714;
+  --ink-muted: #9A9284;
+  --ink-ghost: #C4BDB0;
+  --accent:    #3A5F9E;
+  --border:    rgba(154, 146, 132, 0.25);
+  --f-serif:   var(--font-canela, var(--font-serif-fallback, 'Cormorant Garamond', Georgia, serif));
+  --f-sans:    var(--font-sans, 'DM Sans', system-ui, sans-serif);
+  --f-mono:    var(--font-mono, 'DM Mono', monospace);
+}
+
+html.dark {
+  --bg:        #1C1A17;
+  --ink:       #EAE5DC;
+  --ink-muted: #7A756D;
+  --ink-ghost: #5A554F;
+  --accent:    #7AA0D4;
+  --border:    rgba(255,255,255,0.08);
+}
+
+html.dark body {
+  background: var(--bg);
+  color: var(--ink);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--f-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='1'/%3E%3C/svg%3E");
+  opacity: 0.052;
+  pointer-events: none;
+  z-index: 9999;
+}
+
+/* Citation badge tooltip */
+.cite-btn:hover .cite-tooltip {
+  visibility: visible !important;
+  opacity: 1 !important;
+}
