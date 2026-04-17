@@ -37,7 +37,7 @@ const GENERIC_SUGGESTED = [
   "What's on my next exam?",
 ]
 
-const STARTERS = [
+const FALLBACK_STARTERS = [
   { label: 'Concept review', text: 'Explain the key concepts from this week' },
   { label: 'Practice',       text: 'Quiz me on recent lecture material' },
   { label: 'Lecture notes',  text: 'Summarize what was covered this week' },
@@ -245,6 +245,15 @@ function BlockRenderer({ blocks, sourceMap, isUser, onChoice, isLatest }: { bloc
   return (
     <div className={s.blocks}>
       {blocks.map((block, i) => {
+        if (block.type === 'text') {
+          return (
+            <div key={i} className={s.blockText}>
+              <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]} components={mdComponents(isUser)}>
+                {normalizeMath(block.markdown)}
+              </ReactMarkdown>
+            </div>
+          )
+        }
         if (block.type === 'summary') {
           return (
             <div key={i} className={s.blockSummary}>
@@ -327,6 +336,33 @@ function BlockRenderer({ blocks, sourceMap, isUser, onChoice, isLatest }: { bloc
             </div>
           )
         }
+        if (block.type === 'slide_ref') {
+          const src = Object.values(sourceMap).find(s =>
+            s.filename === block.cite || s.filename.includes(block.cite.replace(/\.pdf$/i, ''))
+          )
+          const href = src ? `${src.url}#page=${block.page}` : null
+          return (
+            <div key={i} className={s.blockSlideRef}>
+              <div className={s.blockSlideRefIcon}>
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                  <rect x="2" y="1" width="10" height="13" rx="1" stroke="currentColor" strokeWidth="1.2"/>
+                  <line x1="4.5" y1="5" x2="9.5" y2="5" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+                  <line x1="4.5" y1="7.5" x2="9.5" y2="7.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+                  <line x1="4.5" y1="10" x2="7.5" y2="10" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+                </svg>
+              </div>
+              <div className={s.blockSlideRefBody}>
+                <span className={s.blockSlideRefCaption}>{block.caption || `Slide ${block.page}`}</span>
+                <span className={s.blockSlideRefMeta}>Slide {block.page} · {block.cite}</span>
+              </div>
+              {href && (
+                <a href={href} target="_blank" rel="noopener noreferrer" className={s.blockSlideRefLink}>
+                  View →
+                </a>
+              )}
+            </div>
+          )
+        }
         if (block.type === 'choice') {
           // Only render choices on the most recent Quill message — stale options on old messages are confusing
           if (!isLatest || !onChoice) return null
@@ -394,10 +430,14 @@ function AskPageInner() {
   const [confOpen,     setConfOpen]     = useState(false)
   const [liveSuggestions, setLiveSuggestions] = useState<string[]>([])
   const [suggestLoading,  setSuggestLoading]  = useState(false)
+  const [examLoading,     setExamLoading]     = useState(false)
+  const [recallLoading,   setRecallLoading]   = useState(false)
   const [threads,      setThreads]      = useState<Thread[]>([])
   const [activeThread, setActiveThread] = useState<string | null>(null)
   const [courseList,    setCourseList]    = useState<Course[]>([])
   const [onqConnected,  setOnqConnected]  = useState<boolean | null>(null) // null = still loading
+  const [courseStarters, setCourseStarters] = useState<{ label: string; text: string }[] | null>(null)
+  const [startersLoading, setStartersLoading] = useState(false)
   const bottomRef       = useRef<HTMLDivElement>(null)
   const loadingThreadRef = useRef(false)
 
@@ -440,6 +480,27 @@ function AskPageInner() {
         setCourse(null)
       })
   }, [courseId])
+
+  // Fetch personalized starters when a course is selected
+  useEffect(() => {
+    if (!course) { setCourseStarters(null); return }
+    let cancelled = false
+    setStartersLoading(true)
+    setCourseStarters(null)
+    const params = new URLSearchParams({ courseId: String(course.id), courseCode: course.code })
+    if (course.name) params.set('courseName', course.name)
+    fetch(`/api/course-starters?${params}`)
+      .then(r => r.ok ? r.json() : { starters: [] })
+      .then(data => {
+        if (cancelled) return
+        if (Array.isArray(data.starters) && data.starters.length >= 2) {
+          setCourseStarters(data.starters)
+        }
+      })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setStartersLoading(false) })
+    return () => { cancelled = true }
+  }, [course?.id])
 
   const loadThread = async (thread: Thread) => {
     loadingThreadRef.current = true
@@ -578,12 +639,52 @@ function AskPageInner() {
     setLoading(false)
   }
 
+  const [actionError, setActionError] = useState<string | null>(null)
+
+  const startPracticeExam = async () => {
+    if (!course || examLoading) return
+    setExamLoading(true)
+    setActionError(null)
+    try {
+      const res = await fetch('/api/practice-exam', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ courseId: course.id, courseCode: course.code, courseName: course.name }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Generation failed')
+      router.push(`/practice/${data.sessionId}`)
+    } catch (err: any) {
+      setActionError(err.message || 'Failed to generate practice exam')
+      setExamLoading(false)
+    }
+  }
+
+  const startRecall = async () => {
+    if (!course || recallLoading) return
+    setRecallLoading(true)
+    setActionError(null)
+    try {
+      const res = await fetch('/api/recall-set', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ courseId: course.id, courseCode: course.code, courseName: course.name }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Generation failed')
+      router.push(`/recall/${data.sessionId}`)
+    } catch (err: any) {
+      setActionError(err.message || 'Failed to generate recall cards')
+      setRecallLoading(false)
+    }
+  }
+
   const inConversation = messages.length > 0
   const placeholder    = course ? `Ask anything about ${course.code}…` : 'Ask anything about your courses…'
 
   // Static defaults — replaced by live suggestions once the conversation starts
   const defaultSuggested = course
-    ? STARTERS.map(st => st.text)
+    ? (courseStarters || FALLBACK_STARTERS).map(st => st.text)
     : GENERIC_SUGGESTED
   const suggested = liveSuggestions.length > 0 ? liveSuggestions : defaultSuggested
 
@@ -654,13 +755,56 @@ function AskPageInner() {
                   What would you like to<br /><em>explore today?</em>
                 </h2>
               </div>
+              {/* Study actions */}
+              <div className={s.studyActions}>
+                <button
+                  className={s.studyAction}
+                  onClick={startPracticeExam}
+                  disabled={examLoading || recallLoading}
+                >
+                  {examLoading ? (
+                    <><span className={s.studyActionSpinner} />Generating exam…</>
+                  ) : (
+                    <>
+                      <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                      Practice exam
+                    </>
+                  )}
+                </button>
+                <button
+                  className={s.studyAction}
+                  onClick={startRecall}
+                  disabled={examLoading || recallLoading}
+                >
+                  {recallLoading ? (
+                    <><span className={s.studyActionSpinner} />Generating cards…</>
+                  ) : (
+                    <>
+                      <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+                      Active recall
+                    </>
+                  )}
+                </button>
+              </div>
+              {actionError && (
+                <p style={{ fontFamily: 'var(--f-sans)', fontSize: 13, color: '#D45050', textAlign: 'center', maxWidth: 480 }}>{actionError}</p>
+              )}
               <div className={s.starterGrid}>
-                {STARTERS.map(st => (
-                  <button key={st.label} className={s.starterBtn} onClick={() => send(st.text)}>
-                    <p className={s.starterLabel}>{st.label}</p>
-                    <p className={s.starterText}>{st.text}</p>
-                  </button>
-                ))}
+                {startersLoading && !courseStarters ? (
+                  [0, 1, 2].map(i => (
+                    <div key={i} className={s.starterBtn} style={{ cursor: 'default' }}>
+                      <div className={s.starterSkeletonLabel} />
+                      <div className={s.starterSkeletonText} />
+                    </div>
+                  ))
+                ) : (
+                  (courseStarters || FALLBACK_STARTERS).map(st => (
+                    <button key={st.text} className={s.starterBtn} onClick={() => send(st.text)}>
+                      <p className={s.starterLabel}>{st.label}</p>
+                      <p className={s.starterText}>{st.text}</p>
+                    </button>
+                  ))
+                )}
               </div>
             </div>
           )}
