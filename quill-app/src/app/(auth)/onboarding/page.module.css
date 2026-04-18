@@ -1,0 +1,379 @@
+/* ── Page shell — dark ── */
+.page {
+  min-height: 100dvh;
+  background: #0C0A08;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  position: relative;
+  overflow: hidden;
+}
+
+.stars {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1200' height='800'%3E%3Ccircle cx='42' cy='30' r='1' fill='white' fill-opacity='0.55'/%3E%3Ccircle cx='280' cy='48' r='1.1' fill='white' fill-opacity='0.5'/%3E%3Ccircle cx='530' cy='40' r='1' fill='white' fill-opacity='0.45'/%3E%3Ccircle cx='790' cy='58' r='1.2' fill='white' fill-opacity='0.55'/%3E%3Ccircle cx='1080' cy='44' r='1' fill='white' fill-opacity='0.48'/%3E%3Ccircle cx='195' cy='88' r='1' fill='white' fill-opacity='0.5'/%3E%3Ccircle cx='485' cy='78' r='1.1' fill='white' fill-opacity='0.55'/%3E%3Ccircle cx='745' cy='92' r='1' fill='white' fill-opacity='0.48'/%3E%3Ccircle cx='995' cy='82' r='1.2' fill='white' fill-opacity='0.5'/%3E%3Ccircle cx='160' cy='185' r='0.8' fill='white' fill-opacity='0.35'/%3E%3Ccircle cx='450' cy='195' r='0.7' fill='white' fill-opacity='0.38'/%3E%3Ccircle cx='710' cy='212' r='0.9' fill='white' fill-opacity='0.4'/%3E%3Ccircle cx='970' cy='252' r='0.8' fill='white' fill-opacity='0.32'/%3E%3Ccircle cx='85' cy='320' r='0.9' fill='white' fill-opacity='0.38'/%3E%3Ccircle cx='365' cy='295' r='0.7' fill='white' fill-opacity='0.3'/%3E%3Ccircle cx='628' cy='308' r='0.8' fill='white' fill-opacity='0.35'/%3E%3Ccircle cx='888' cy='318' r='0.7' fill='white' fill-opacity='0.32'/%3E%3Ccircle cx='175' cy='415' r='0.8' fill='white' fill-opacity='0.38'/%3E%3Ccircle cx='442' cy='428' r='1.1' fill='white' fill-opacity='0.52'/%3E%3Ccircle cx='702' cy='448' r='1' fill='white' fill-opacity='0.48'/%3E%3Ccircle cx='962' cy='468' r='1.2' fill='white' fill-opacity='0.55'/%3E%3Ccircle cx='248' cy='578' r='0.9' fill='white' fill-opacity='0.38'/%3E%3Ccircle cx='515' cy='598' r='1.1' fill='white' fill-opacity='0.5'/%3E%3Ccircle cx='778' cy='618' r='1' fill='white' fill-opacity='0.48'/%3E%3Ccircle cx='340' cy='658' r='0.9' fill='white' fill-opacity='0.38'/%3E%3Ccircle cx='605' cy='675' r='1.1' fill='white' fill-opacity='0.52'/%3E%3Ccircle cx='868' cy='712' r='1' fill='white' fill-opacity='0.45'/%3E%3C/svg%3E");
+  background-size: cover;
+  background-position: center;
+}
+
+.glow {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 55% 40% at 12% 65%, rgba(58, 95, 158, 0.14) 0%, transparent 70%),
+    radial-gradient(ellipse 45% 45% at 88% 25%, rgba(70, 55, 130, 0.09) 0%, transparent 65%),
+    radial-gradient(ellipse 35% 30% at 60% 80%, rgba(40, 70, 120, 0.08) 0%, transparent 60%);
+}
+
+/* ── Shell + card ── */
+.shell {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 420px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 0.5px solid rgba(255, 255, 255, 0.10);
+  border-radius: 22px;
+  padding: 2px;
+  box-shadow: 0 32px 80px rgba(0, 0, 0, 0.55), 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.card {
+  background: #1B1916;
+  border-radius: 20px;
+  padding: 32px 28px 26px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07);
+}
+
+/* ── Progress dots ── */
+.progress {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  padding: 14px 0 6px;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12);
+  transition: background 0.3s, box-shadow 0.3s;
+}
+
+.dotActive {
+  background: #3A5F9E;
+  box-shadow: 0 0 8px rgba(58, 95, 158, 0.5);
+}
+
+.dotDone {
+  background: rgba(74, 222, 128, 0.6);
+}
+
+/* ── Step icon ── */
+.iconWrap {
+  width: 54px;
+  height: 54px;
+  border-radius: 15px;
+  background: linear-gradient(145deg, #4A7FCC 0%, #2B4E8A 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 20px;
+  box-shadow:
+    0 6px 20px rgba(58, 95, 158, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22);
+}
+
+/* ── Pulse animation (waiting for connection) ── */
+.pulseWrap {
+  position: relative;
+  width: 54px;
+  height: 54px;
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pulseDot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #3A5F9E;
+}
+
+.pulseRing {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 1.5px solid rgba(58, 95, 158, 0.5);
+  animation: pulse 2s cubic-bezier(0.23, 1, 0.32, 1) infinite;
+}
+
+@keyframes pulse {
+  0%   { transform: scale(0.5); opacity: 0.8; }
+  100% { transform: scale(1.2); opacity: 0; }
+}
+
+/* ── Check icon (connected) ── */
+.checkWrap {
+  width: 54px;
+  height: 54px;
+  border-radius: 15px;
+  background: rgba(74, 222, 128, 0.08);
+  border: 0.5px solid rgba(74, 222, 128, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 20px;
+}
+
+/* ── Typography ── */
+.stepLabel {
+  font-family: var(--f-mono);
+  font-size: 9px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.28);
+  margin-bottom: 10px;
+}
+
+.heading {
+  font-family: var(--f-sans);
+  font-size: 18px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.90);
+  letter-spacing: -0.01em;
+  text-align: center;
+  margin-bottom: 8px;
+}
+
+.desc {
+  font-family: var(--f-sans);
+  font-size: 12.5px;
+  font-weight: 300;
+  color: rgba(255, 255, 255, 0.35);
+  text-align: center;
+  line-height: 1.55;
+  margin-bottom: 24px;
+  max-width: 320px;
+}
+
+.link {
+  color: rgba(140, 175, 230, 0.75);
+  text-decoration: none;
+  transition: color 0.15s;
+}
+.link:hover { color: rgba(140, 175, 230, 1); }
+
+.waiting {
+  font-family: var(--f-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: rgba(255, 255, 255, 0.22);
+  margin-bottom: 16px;
+  animation: waitFade 2s ease-in-out infinite;
+}
+
+@keyframes waitFade {
+  0%, 100% { opacity: 0.5; }
+  50%      { opacity: 1; }
+}
+
+/* ── Buttons ── */
+.primaryBtn {
+  width: 100%;
+  padding: 11px;
+  background: #3A5F9E;
+  color: #fff;
+  border: none;
+  border-radius: 9px;
+  font-family: var(--f-sans);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  text-align: center;
+  text-decoration: none;
+  display: block;
+  transition:
+    opacity   0.15s cubic-bezier(0.23, 1, 0.32, 1),
+    transform 0.10s cubic-bezier(0.23, 1, 0.32, 1);
+  box-shadow: 0 2px 12px rgba(58, 95, 158, 0.40);
+}
+.primaryBtn:hover { opacity: 0.88; }
+.primaryBtn:active { transform: scale(0.98); }
+
+.skipBtn {
+  background: none;
+  border: none;
+  font-family: var(--f-sans);
+  font-size: 12px;
+  font-weight: 300;
+  color: rgba(255, 255, 255, 0.28);
+  cursor: pointer;
+  margin-top: 12px;
+  padding: 4px 8px;
+  transition: color 0.15s;
+}
+.skipBtn:hover { color: rgba(255, 255, 255, 0.55); }
+
+/* ── Exam list ── */
+.examList {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 16px;
+}
+
+.examRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 0.5px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+}
+
+.examCode {
+  font-family: var(--f-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: rgba(140, 175, 230, 0.7);
+  flex-shrink: 0;
+}
+
+.examName {
+  font-family: var(--f-sans);
+  font-size: 12px;
+  font-weight: 300;
+  color: rgba(255, 255, 255, 0.65);
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.examDate {
+  font-family: var(--f-mono);
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.32);
+  flex-shrink: 0;
+}
+
+/* ── Exam form ── */
+.examForm {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.formRow {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  flex: 1;
+  min-width: 0;
+}
+
+.fieldSmall {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  width: 90px;
+  flex-shrink: 0;
+}
+
+.label {
+  font-family: var(--f-mono);
+  font-size: 9px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.28);
+}
+
+.input,
+.select {
+  width: 100%;
+  padding: 9px 11px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 0.5px solid rgba(255, 255, 255, 0.10);
+  border-radius: 8px;
+  font-family: var(--f-sans);
+  font-size: 12px;
+  font-weight: 300;
+  color: rgba(255, 255, 255, 0.82);
+  outline: none;
+  transition: border-color 0.15s;
+}
+.input:focus,
+.select:focus {
+  border-color: rgba(100, 145, 210, 0.50);
+}
+
+.select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='rgba(255,255,255,0.3)'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  padding-right: 26px;
+}
+
+.select option {
+  background: #1B1916;
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.addBtn {
+  padding: 9px 16px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 0.5px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  font-family: var(--f-sans);
+  font-size: 12px;
+  font-weight: 400;
+  color: rgba(255, 255, 255, 0.7);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s, transform 0.1s;
+}
+.addBtn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.14); }
+.addBtn:active:not(:disabled) { transform: scale(0.97); }
+.addBtn:disabled { opacity: 0.35; cursor: default; }
+
+.noCourses {
+  font-family: var(--f-sans);
+  font-size: 12px;
+  font-weight: 300;
+  color: rgba(255, 255, 255, 0.25);
+  text-align: center;
+  line-height: 1.55;
+  margin-bottom: 20px;
+}
+
+/* ── Reduced motion ── */
+@media (prefers-reduced-motion: reduce) {
+  .pulseRing { animation: none; }
+  .waiting { animation: none; }
+  .primaryBtn, .skipBtn, .addBtn { transition: none; }
+  .primaryBtn:active, .addBtn:active { transform: none; }
+}

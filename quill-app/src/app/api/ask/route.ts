@@ -1,18 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getUserFromRequest, unauthorized } from '@/lib/auth'
 import { supabaseServer } from '@/lib/supabaseServer'
+import {
+  D2L_API, D2LSession, PdfResult, PdfCandidate, SourceType as D2LSourceType,
+  getD2LSession, d2lGet, getPdfText, detectSourceType, SOURCE_TYPE_PRIORITY,
+  findSyllabus, collectCoursePdfs, extractWeekNumber, extractLectureNumber,
+  extractKeywords, scoreRelevance,
+} from '@/lib/d2l'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-export type SourceType = 'LECTURE' | 'PAST EXAM' | 'TUTORIAL' | 'ASSIGNMENT' | 'FORMULA SHEET' | 'LAB' | 'OTHER'
+export type SourceType = D2LSourceType
 
 export type Block =
+  | { type: 'text';      markdown: string }
   | { type: 'summary';   text: string }
   | { type: 'bullets';   items: string[] }
   | { type: 'highlight'; text: string }
   | { type: 'steps';     label?: string; items: string[] }
   | { type: 'question';  number?: number; text: string; cite?: string; solution?: string[]; origin?: 'real' | 'synthesized' }
   | { type: 'choice';    items: string[] }
+  | { type: 'slide_ref'; cite: string; page: number; caption?: string }
 
 export interface Source {
   filename: string
@@ -21,208 +29,8 @@ export interface Source {
   title: string
 }
 
-// ── D2L direct client ─────────────────────────────────────────────────────────
 
-interface D2LSession { cookieHeader: string; host: string }
-
-const D2L_API = '1.57'
-
-async function getD2LSession(userId: string): Promise<D2LSession | null> {
-  const { data, error } = await supabaseServer()
-    .from('user_credentials')
-    .select('token, host')
-    .eq('user_id', userId)
-    .eq('service', 'd2l')
-    .single()
-  if (error || !data) return null
-  try {
-    const { d2lSessionVal, d2lSecureSessionVal } = JSON.parse(data.token as string)
-    if (!d2lSessionVal || !d2lSecureSessionVal) return null
-    return {
-      cookieHeader: `d2lSessionVal=${d2lSessionVal}; d2lSecureSessionVal=${d2lSecureSessionVal}`,
-      host: (data.host as string) || 'onq.queensu.ca',
-    }
-  } catch { return null }
-}
-
-async function d2lGet(session: D2LSession, path: string): Promise<any> {
-  const url = `https://${session.host}${path}`
-  const res = await fetch(url, { headers: { Cookie: session.cookieHeader } })
-  if (!res.ok) {
-    console.error('[d2l]', path, res.status)
-    return null
-  }
-  return res.json()
-}
-
-// ── PDF cache + download ──────────────────────────────────────────────────────
-
-interface PdfResult { cacheHit: boolean; chars: number; error?: string }
-
-async function getPdfText(
-  session: D2LSession,
-  url: string,
-  debugOut?: PdfResult
-): Promise<string | null> {
-  const sb = supabaseServer()
-
-  // 1. Cache hit
-  const { data } = await sb.from('pdf_cache').select('text').eq('url', url).single()
-  if (data?.text) {
-    if (debugOut) { debugOut.cacheHit = true; debugOut.chars = data.text.length }
-    return data.text
-  }
-
-  // 2. Download with D2L session cookies
-  const fullUrl = url.startsWith('http') ? url : `https://${session.host}${url}`
-  let res: Response
-  try {
-    res = await fetch(fullUrl, { headers: { Cookie: session.cookieHeader }, redirect: 'follow' })
-  } catch (err: any) {
-    const msg = `fetch failed: ${err?.message}`
-    console.error('[pdf]', msg)
-    if (debugOut) debugOut.error = msg
-    return null
-  }
-  if (!res.ok) {
-    const msg = `HTTP ${res.status}`
-    console.error('[pdf] download error', msg, fullUrl)
-    if (debugOut) debugOut.error = msg
-    return null
-  }
-  const contentType = res.headers.get('content-type') || ''
-  if (contentType.includes('text/html')) {
-    const msg = 'got HTML — session expired?'
-    console.error('[pdf]', msg)
-    if (debugOut) debugOut.error = msg
-    return null
-  }
-
-  // 3. Extract content via Gemini Flash vision (via OpenRouter)
-  //    Handles typed slides AND handwritten notes — no image conversion needed
-  let text: string | null = null
-  try {
-    const buf = Buffer.from(await res.arrayBuffer())
-    const base64 = buf.toString('base64')
-
-    const visionRes = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'google/gemini-flash-1.5',
-        messages: [{
-          role: 'user',
-          content: [
-            {
-              type: 'image_url',
-              image_url: { url: `data:application/pdf;base64,${base64}` },
-            },
-            {
-              type: 'text',
-              text: 'Extract all content from this document. Include all text, equations, diagrams described in words, and any handwritten notes. Be thorough and preserve structure.',
-            },
-          ],
-        }],
-      }),
-    })
-
-    const visionData = await visionRes.json()
-    text = visionData.choices?.[0]?.message?.content?.trim() || null
-    if (!visionRes.ok) throw new Error(visionData.error?.message || `HTTP ${visionRes.status}`)
-  } catch (err: any) {
-    const msg = `vision error: ${err?.message}`
-    console.error('[pdf]', msg)
-    if (debugOut) debugOut.error = msg
-    return null
-  }
-  if (!text) {
-    if (debugOut) debugOut.error = 'empty text after parse'
-    return null
-  }
-
-  if (debugOut) { debugOut.cacheHit = false; debugOut.chars = text.length }
-
-  // 4. Cache for next time (fire-and-forget)
-  sb.from('pdf_cache').upsert({ url, text }).then(() => {})
-
-  return text
-}
-
-// ── Source type detection ────────────────────────────────────────────────────
-
-function detectSourceType(title: string, parentTitle: string): SourceType {
-  const t = (title + ' ' + parentTitle).toLowerCase()
-  if (/midterm|past[\s_-]?test|past[\s_-]?exam|previous[\s_-]?exam|sample[\s_-]?exam/.test(t)) return 'PAST EXAM'
-  if (/formula|reference[\s_-]?sheet|cheat[\s_-]?sheet|equation[\s_-]?sheet/.test(t)) return 'FORMULA SHEET'
-  if (/\btut(orial)?\b/.test(t)) return 'TUTORIAL'
-  if (/\bassignment\b|\bhomework\b/.test(t)) return 'ASSIGNMENT'
-  if (/\blab\b/.test(t)) return 'LAB'
-  if (/lecture|slides|notes|week/.test(t)) return 'LECTURE'
-  return 'OTHER'
-}
-
-const SOURCE_TYPE_PRIORITY: Record<SourceType, number> = {
-  'PAST EXAM':     0,
-  'FORMULA SHEET': 1,
-  'LECTURE':       2,
-  'TUTORIAL':      3,
-  'ASSIGNMENT':    4,
-  'LAB':           5,
-  'OTHER':         6,
-}
-
-interface PdfCandidate { url: string; title: string; parentTitle: string; sourceType: SourceType; index: number }
-
-// Find syllabus PDF URL in the content tree (first match)
-function findSyllabus(modules: any[]): string | null {
-  for (const mod of modules) {
-    for (const topic of mod.topics || []) {
-      const url: string   = topic.url || ''
-      const title: string = (topic.title || '').toLowerCase()
-      if (url.endsWith('.pdf') && title.includes('syllabus')) return url
-    }
-    const found = findSyllabus(mod.modules || [])
-    if (found) return found
-  }
-  return null
-}
-
-// Walk content tree and collect all relevant PDFs (excluding solutions/answers/syllabus)
-function collectCoursePdfs(modules: any[]): PdfCandidate[] {
-  const pdfs: PdfCandidate[] = []
-  let idx = 0
-  function walk(mods: any[]) {
-    for (const mod of mods) {
-      for (const topic of mod.topics || []) {
-        const url: string  = topic.url || ''
-        const title: string = topic.title || ''
-        const parentTitle: string = mod.title || ''
-        if (!url.endsWith('.pdf')) continue
-        const tl = title.toLowerCase()
-        if (tl.includes('syllabus') || tl.includes('solution') || tl.includes('answer key')) continue
-        pdfs.push({ url, title, parentTitle, sourceType: detectSourceType(title, parentTitle), index: idx++ })
-      }
-      walk(mod.modules || [])
-    }
-  }
-  walk(modules)
-  return pdfs
-}
-
-// Extract a week number — works on both natural language ("week 9") and filenames ("Week4_notes")
-function extractWeekNumber(s: string): number | null {
-  const m = s.toLowerCase().match(/(?:week|wk)[_\s-]?(\d{1,2})/)
-  return m ? parseInt(m[1], 10) : null
-}
-
-// Extract a lecture number — works on both "lecture 10" and filenames like "10_Lecture10_MECH241"
-function extractLectureNumber(s: string): number | null {
-  const m = s.toLowerCase().match(/(?:lecture|lec|lect)[_\s-]?(\d{1,2})/)
-  return m ? parseInt(m[1], 10) : null
-}
+// ── Source scoring ─────────────────────────────────────────────────────────────
 
 // Score a candidate against a query: higher = more relevant
 function scoreCandidate(c: PdfCandidate, queryWeek: number | null, queryLecture: number | null, queryLower: string): number {
@@ -254,8 +62,8 @@ function scoreCandidate(c: PdfCandidate, queryWeek: number | null, queryLecture:
   // Penalize "course review" / "review" lectures as primary sources
   if (/\bcourse[\s_-]?review\b|\bfinal[\s_-]?review\b|\bexam[\s_-]?review\b/.test(t)) score -= 40
 
-  // Recency bonus: small tiebreaker only — explicit matches dominate
-  score += c.index * 0.3
+  // Recency bonus: tiny tiebreaker only — explicit matches dominate
+  score += c.index * 0.03
 
   return score
 }
@@ -269,6 +77,7 @@ function selectSources(candidates: PdfCandidate[], maxCount = 3, query = ''): Pd
   const queryLecture = extractLectureNumber(queryLower)
 
   const isOverviewQuery = /this week|last week|week \d|summarize|what('s| was) covered|overview of|go over/.test(queryLower)
+  const isExamQuery     = /exam|midterm|test|quiz|final|past (exam|test)|practice test/.test(queryLower)
   const effectiveMax    = isOverviewQuery ? Math.max(maxCount, 5) : maxCount
 
   const seen     = new Set<string>()
@@ -290,12 +99,12 @@ function selectSources(candidates: PdfCandidate[], maxCount = 3, query = ''): Pd
     })
 
     if (directMatches.length > 0) {
-      // Load the matching files first, then fill remaining slots with scored context
       directMatches.forEach(add)
     }
   }
 
-  // ── Mode 2: fill remaining slots with scored candidates ──
+  // ── Mode 2: fill remaining slots with scored lectures ──
+  // Also runs as full fallback when explicit ref was requested but direct matching found nothing
   const byType = (types: SourceType[]) =>
     candidates.filter(c => types.includes(c.sourceType)).sort((a, b) => b.index - a.index)
 
@@ -303,12 +112,28 @@ function selectSources(candidates: PdfCandidate[], maxCount = 3, query = ''): Pd
     .map(c => ({ c, score: scoreCandidate(c, queryWeek, queryLecture, queryLower) }))
     .sort((a, b) => b.score - a.score)
 
-  const highValue  = byType(['PAST EXAM', 'FORMULA SHEET']).slice(0, 1)
-  const remaining  = byType(['TUTORIAL', 'ASSIGNMENT', 'LAB', 'OTHER'])
+  // If direct matching succeeded, don't fill with scored lectures.
+  // If it found nothing (fallback), run scored fill as if no explicit ref was given.
+  const directMatchSucceeded = hasExplicitRef && selected.length > 0
+  const fillCount = directMatchSucceeded ? 0 : (isOverviewQuery ? 4 : 2)
 
-  const fillCount = hasExplicitRef ? 1 : (isOverviewQuery ? 4 : 2)
+  // Only pull past exams / formula sheets when the query is about exams/tests
+  const pastExams = isExamQuery ? byType(['PAST EXAM', 'FORMULA SHEET']) : []
+  const highValue = pastExams.slice(0, 1)
+  // Only pull tutorials/other when no explicit lecture was requested (and direct match didn't succeed)
+  const remaining = (!directMatchSucceeded && isOverviewQuery) ? byType(['TUTORIAL', 'ASSIGNMENT', 'LAB', 'OTHER']) : []
+  // Exam fallback: if no past exams exist, use scored tutorials/ICAs/other as context
+  // (handles courses that only have in-class activity files, no past exams)
+  const examFallback = (isExamQuery && pastExams.length === 0 && !directMatchSucceeded)
+    ? byType(['TUTORIAL', 'ASSIGNMENT', 'LAB', 'OTHER'])
+        .map(c => ({ c, score: scoreCandidate(c, queryWeek, queryLecture, queryLower) }))
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 2)
+        .map(x => x.c)
+    : []
   scoredLectures.slice(0, fillCount).forEach(x => add(x.c))
   highValue.forEach(add)
+  examFallback.forEach(add)
   remaining.forEach(add)
 
   return selected
@@ -318,14 +143,15 @@ function selectSources(candidates: PdfCandidate[], maxCount = 3, query = ''): Pd
 
 type Mode = 'brief' | 'teach' | 'practice' | 'test' | 'email'
 
-function detectMode(message: string): Mode {
-  const m = message.toLowerCase()
+function detectMode(message: string, history: { role: string }[] = []): Mode {
+  const m = message.toLowerCase().trim()
   if (/write (an?|the|a draft|me an?) email|draft (an?|me an?) email|compose (an?|me an?) email|email (to|the) (prof|professor|instructor|ta)/.test(m)) return 'email'
-  // Full test: multiple questions, exam format
   if (/practice (test|exam)|mock (test|exam)|make.*(a |me a |me an )?(test|exam)|full (test|exam)|give me (a |an )?(practice )?(test|exam)/.test(m)) return 'test'
-  // Single question: quiz, one problem
   if (/quiz me|give me a (question|problem)|test me on|exam me|one (question|problem)/.test(m)) return 'practice'
   if (/teach me|explain|i don.t understand|walk me through|how does|how do|what is |what are |why does|why is|i.m confused|help me understand/.test(m)) return 'teach'
+  // "next" / "continue" in a teach session → stay in teach mode
+  if (/^(next|continue|next section|go on|keep going|next:)/.test(m) && history.length > 0) return 'teach'
+  if (/^practice problem on/.test(m) && history.length > 0) return 'practice'
   return 'brief'
 }
 
@@ -347,32 +173,129 @@ function flattenOutline(modules: any[], depth = 0): string {
 
 function blocksToText(blocks: Block[]): string {
   return blocks.map((b: Block) => {
-    if (b.type === 'summary')   return b.text
-    if (b.type === 'bullets')   return b.items.join('\n')
-    if (b.type === 'highlight') return b.text
-    if (b.type === 'question')  return b.text
+    if (b.type === 'text')      return b.markdown ?? ''
+    if (b.type === 'summary')   return b.text ?? ''
+    if (b.type === 'bullets')   return Array.isArray(b.items) ? b.items.join('\n') : ''
+    if (b.type === 'highlight') return b.text ?? ''
+    if (b.type === 'steps')     return Array.isArray(b.items) ? ((b.label ? b.label + '\n' : '') + b.items.join('\n')) : ''
+    if (b.type === 'question')  return b.text ?? ''
+    if (b.type === 'choice')    return Array.isArray(b.items) ? b.items.join(' | ') : ''
+    if (b.type === 'slide_ref') return b.caption ?? b.cite ?? ''
     return ''
   }).filter(Boolean).join('\n\n')
 }
 
+// Sanitize JSON strings to fix issues Claude commonly introduces:
+//   1. Literal (unescaped) newlines / carriage returns / tabs inside string values
+//   2. Invalid JSON escape sequences like \i, \a, \p (from LaTeX: \int, \alpha, \partial)
+//      JSON only allows: \" \\ \/ \b \f \n \r \t \uXXXX
+//      Anything else (e.g. \i from $\int$) is invalid → replace with \\char
+const VALID_JSON_ESCAPES = new Set(['"', '\\', '/', 'b', 'f', 'n', 'r', 't', 'u'])
+
+function sanitizeJsonStrings(s: string): string {
+  let result = ''
+  let inString = false
+  let escaped = false
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i]
+    if (escaped) {
+      if (VALID_JSON_ESCAPES.has(c)) {
+        // Valid escape — pass through as-is
+        result += c
+        // \uXXXX — consume the 4 hex digits so they aren't re-processed
+        if (c === 'u') {
+          result += s.slice(i + 1, i + 5)
+          i += 4
+        }
+      } else {
+        // Invalid escape (e.g. \i, \a from LaTeX) — double the backslash
+        result += '\\' + c
+      }
+      escaped = false
+    } else if (c === '\\' && inString) {
+      result += c
+      escaped = true
+    } else if (c === '"') {
+      result += c
+      inString = !inString
+    } else if (inString && (c === '\n' || c === '\r')) {
+      result += '\\n'
+    } else if (inString && c === '\t') {
+      result += '\\t'
+    } else {
+      result += c
+    }
+  }
+  return result
+}
+
 function parseBlocks(raw: string): { blocks: Block[]; text: string } {
-  try {
-    const json = JSON.parse(raw)
-    // Standard: { blocks: [...] }
+  const tryParse = (s: string) => {
+    // Step 1: parse JSON — legitimate parse errors return null
+    let json: any
+    try { json = JSON.parse(s) } catch { return null }
+
+    // Step 2: extract blocks array from whatever structure Claude returned
+    let blocks: Block[] | null = null
     if (Array.isArray(json.blocks) && json.blocks.length > 0) {
-      return { blocks: json.blocks, text: blocksToText(json.blocks) }
+      blocks = json.blocks as Block[]
+      // Claude sometimes puts the choice block at root level outside blocks[]
+      if (json.type === 'choice' && Array.isArray(json.items) && !blocks.some(b => b.type === 'choice')) {
+        blocks.push({ type: 'choice', items: json.items })
+      }
+    } else if (typeof json.type === 'string') {
+      blocks = [json] as Block[]
+    } else if (Array.isArray(json) && json.length > 0 && typeof json[0]?.type === 'string') {
+      blocks = json as Block[]
     }
-    // Model returned a bare block object: { type: "summary", text: "..." }
-    if (typeof json.type === 'string') {
-      const blocks = [json] as Block[]
-      return { blocks, text: blocksToText(blocks) }
-    }
-    // Model returned a bare array of blocks: [{ type: ... }, ...]
-    if (Array.isArray(json) && json.length > 0 && typeof json[0]?.type === 'string') {
-      return { blocks: json as Block[], text: blocksToText(json as Block[]) }
+    if (!blocks || blocks.length === 0) return null
+
+    // Step 3: convert to plain text separately — don't let this kill the parse
+    let text = ''
+    try { text = blocksToText(blocks) } catch { /* blocksToText is now null-safe, but belt-and-suspenders */ }
+    return { blocks, text }
+  }
+
+  // Extract the JSON object — handles code fences, preamble text, postamble, anything
+  // Search for {"blocks": specifically so we don't get tripped by { in preamble text
+  const blocksKeyIdx = raw.search(/\{\s*"blocks"\s*:/)
+  const jsonEnd      = raw.lastIndexOf('}')
+  const base = (blocksKeyIdx !== -1 && jsonEnd > blocksKeyIdx)
+    ? raw.slice(blocksKeyIdx, jsonEnd + 1)
+    : raw.trim()
+
+  // Sanitize literal newlines inside JSON string values (Claude puts math on its own lines)
+  const sanitized = sanitizeJsonStrings(base)
+
+  // 1. Primary: sanitized extracted JSON
+  const clean = tryParse(sanitized)
+  if (clean) return clean
+
+  // 2. Fallback: unsanitized in case sanitizer mangled something unusual
+  if (sanitized !== base) {
+    const direct = tryParse(base)
+    if (direct) return direct
+  }
+
+  // 3. Truncation rescue — find last complete block in sanitized string
+  try {
+    const blocksStart = sanitized.indexOf('"blocks"')
+    if (blocksStart !== -1) {
+      const arrStart = sanitized.indexOf('[', blocksStart)
+      if (arrStart !== -1) {
+        let partial = sanitized.slice(arrStart)
+        const lastComplete = Math.max(partial.lastIndexOf('},'), partial.lastIndexOf('"}'))
+        if (lastComplete > 0) {
+          partial = partial.slice(0, lastComplete + 1) + ']'
+          const rescued = tryParse(`{"blocks":${partial}}`)
+          if (rescued && rescued.blocks.length > 0) return rescued
+        }
+      }
     }
   } catch {}
-  // Fallback: wrap plain text as a single summary block
+
+  // 4. Last resort: log and return plain text
+  console.error('[parseBlocks] all parse attempts failed. raw (first 600):', raw.slice(0, 600))
   return { blocks: [{ type: 'summary', text: raw }], text: raw }
 }
 
@@ -383,7 +306,7 @@ export async function POST(req: NextRequest) {
   if (!user) return unauthorized()
 
   const { message, history, courseId, courseCode, courseName } = await req.json()
-  const mode = detectMode(message)
+  const mode = detectMode(message, history)
   const isOverviewQuery = /this week|last week|week \d|summarize|what('s| was) covered|overview of|go over/.test(message.toLowerCase())
 
   const fullName = (user.user_metadata?.full_name as string | undefined)?.trim()
@@ -419,10 +342,13 @@ export async function POST(req: NextRequest) {
 
       if (d2l) {
         const orgUnitId = Number(courseId)
+        const isGradeQuery = /grade|mark|score|how did i do|assignment \d|quiz \d|test \d|midterm result/.test(message.toLowerCase())
+        const isAnnouncementQuery = /announcement|news|posted|professor said|instructor said|update|reminder/.test(message.toLowerCase())
+
         const [tocRaw, gradesRaw, newsRaw] = await Promise.all([
           d2lGet(d2l, `/d2l/api/le/${D2L_API}/${orgUnitId}/content/toc`),
-          d2lGet(d2l, `/d2l/api/le/${D2L_API}/${orgUnitId}/grades/values/myGradeValues/`),
-          d2lGet(d2l, `/d2l/api/le/${D2L_API}/${orgUnitId}/news/`),
+          isGradeQuery ? d2lGet(d2l, `/d2l/api/le/${D2L_API}/${orgUnitId}/grades/values/myGradeValues/`) : Promise.resolve(null),
+          isAnnouncementQuery ? d2lGet(d2l, `/d2l/api/le/${D2L_API}/${orgUnitId}/news/`) : Promise.resolve(null),
         ])
 
         // Marshal TOC
@@ -477,8 +403,14 @@ export async function POST(req: NextRequest) {
           }
 
           const candidates = collectCoursePdfs(modules)
-          const selected   = selectSources(candidates, 3, message)
-          const charsPerSource = isOverviewQuery ? 6000 : 2500
+          // For teach continuations ("next", "continue"), re-use the original
+          // teach query from history so source selection stays on the same lecture
+          const isContinuation = mode === 'teach' && /^(next|continue|next section|go on|keep going)/i.test(message.trim())
+          const selectionQuery = isContinuation
+            ? (history as { role: string; content: string }[]).find(m => m.role === 'user')?.content ?? message
+            : message
+          const selected   = selectSources(candidates, 3, selectionQuery)
+          const charsPerSource = isOverviewQuery ? 6000 : mode === 'teach' ? 5000 : 3000
 
           debug.allPdfs      = candidates.map(c => ({ title: c.title, parentTitle: c.parentTitle, sourceType: c.sourceType, url: c.url }))
           debug.selectedPdfs = selected.map(c => ({ title: c.title, sourceType: c.sourceType, url: c.url }))
@@ -499,6 +431,48 @@ export async function POST(req: NextRequest) {
             }
           }
           if (pdfContent) courseContext += `\n\nCOURSE MATERIALS:\n${pdfContent}`
+
+          // ── Phase 1: Related practice materials ─────────────────────────────
+          // In teach/practice/test modes, find tutorials & assignments whose
+          // cached text overlaps topically with the loaded lecture content.
+          // This lets the model know what kinds of questions this material generates
+          // without explicitly teaching them — purely awareness/calibration context.
+          if (['teach', 'practice', 'test'].includes(mode) && pdfContent.length > 0) {
+            const practiceCandidates = candidates.filter(c =>
+              ['TUTORIAL', 'ASSIGNMENT', 'LAB'].includes(c.sourceType) &&
+              !loadedSources.some(s => s.url.endsWith(c.url) || c.url.endsWith(s.filename))
+            )
+            if (practiceCandidates.length > 0) {
+              const practiceUrls = practiceCandidates.map(c => c.url)
+              const { data: cached } = await supabaseServer()
+                .from('pdf_cache')
+                .select('url, text')
+                .in('url', practiceUrls)
+
+              if (cached && cached.length > 0) {
+                const keywords = extractKeywords(pdfContent)
+                const scored = cached
+                  .filter(file => typeof file.text === 'string' && file.text.length > 0)
+                  .map(file => ({
+                    ...file,
+                    meta: practiceCandidates.find(p => p.url === file.url)!,
+                    score: scoreRelevance(file.text, keywords),
+                  }))
+                  .filter(f => f.score > 5 && f.meta)
+                  .sort((a, b) => b.score - a.score)
+                  .slice(0, 2)
+
+                if (scored.length > 0) {
+                  let practiceCtx = '\n\nRELATED PRACTICE MATERIALS (for calibration only — use to understand the style and difficulty of questions this topic generates; do not solve them unless explicitly asked):\n'
+                  for (const item of scored) {
+                    const filename = item.url.split('/').pop() || 'file.pdf'
+                    practiceCtx += `\n[${item.meta.sourceType} — ${item.meta.parentTitle ? `${item.meta.parentTitle} / ` : ''}${item.meta.title}] ${filename}:\n${item.text.slice(0, 2500)}\n`
+                  }
+                  courseContext += practiceCtx
+                }
+              }
+            }
+          }
         }
       }
     } catch (err: any) {
@@ -507,9 +481,10 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  const materialsLoaded = loadedSources.length > 0
   const courseIntro = courseId
-    ? `The student is asking about ${courseCode}${courseName ? ` — ${courseName}` : ''}. You have real course materials below — use them for specific formulas, examples, and context.`
-    : `Answer questions about the student's courses at Queen's University.`
+    ? `The student is asking about ${courseCode}${courseName ? ` — ${courseName}` : ''}.${materialsLoaded ? ' You have real course materials below — use them to understand what was taught in this course (topics, scope, examples, notation). Then teach and explain those concepts using your full knowledge and understanding. The materials tell you *what* was covered — your job is to explain *why* it works, build intuition, and make it click. Do not invent topics not in the materials, but never limit your explanations to just what the slides say.' : ' IMPORTANT: No course materials were loaded for this request. Do not answer course-specific questions (lecture content, formulas, examples) from training data — you will hallucinate the wrong course content. Instead, tell the student you could not load the materials and ask them to try again.'}`
+    : `Answer general questions about university coursework. If the student asks about specific lecture content, tell them to select their course first.`
 
   const sourceList = loadedSources.length > 0
     ? `\nAvailable source filenames for citation: ${loadedSources.map(s => s.filename).join(', ')}. IMPORTANT: Only include a filename in your response (in a cite field or inline) if you actually drew information from that file. Do not cite files you did not use.`
@@ -536,30 +511,34 @@ If the student is asking for a summary of material (e.g. "summarize week 9", "wh
 - Block sequence: summary → bullets (grouped by section) → highlight if relevant → one question at the end.`,
 
     teach: `
-DETECTED MODE: TEACH — student wants to actually learn this concept, not read a summary.
+DETECTED MODE: TEACH.
 
-You are tutoring one-on-one. Pick the SINGLE most foundational concept relevant to their request and teach it completely before moving to the next. Structure your response exactly as follows:
+Teach this lecture using the following format — exactly this style, no deviation:
 
-1. INTUITION (summary block): Plain English explanation a smart person with no background could follow. Use an analogy. No jargon in this block. 2–3 sentences max.
+1. Open with one line: "Good. We go step by step. Say **next** when ready."
+2. Cover 3–5 concepts from the lecture, each as a numbered step:
 
-2. THE METHOD (bullets block, labeled "The method"):
-   - One bullet per variable or term in the formula, explaining what it actually represents
-   - Final bullet: the full formula in LaTeX with a plain-English description of what it computes
-   - Example: "**$R^2$** · Ranges from 0 to 1. A value of 0.95 means 95% of the variation in $y$ is explained by your model — only 5% is noise or unexplained factors."
+---
+**Step N. [Concept name]**
 
-3. WORKED EXAMPLE (steps block, label: "Worked example"):
-   - Make up a simple concrete dataset with real numbers (e.g. 3–4 data points)
-   - Show every arithmetic step explicitly — do not skip steps or say "simplifying gives"
-   - Write out each calculation: "Step 1: Compute $\\bar{x} = (2+4+6)/3 = 4$"
-   - Show the final answer with units or context
+Core idea: [One sentence. Then a short punchy follow-up on its own line if it helps.]
 
-4. CLOSE (question block): "Does that make sense? Here's one to try:" followed by a practice problem directly testing what was just taught.
+- [bullet: short fact or component]
+- [bullet: short fact or component]
 
-Rules for teach mode:
-- Cover ONE concept deeply. If asked "teach me week 9", start with the most foundational concept and offer to continue after.
-- Every formula variable must be defined — never write $\\hat{b} = (X^TX)^{-1}X^Ty$ without explaining what $X$, $T$, and $y$ are
-- Never use the word "simply" — it's dismissive
-- The worked example must use real numbers the student can verify themselves`,
+Key idea: [One sentence takeaway — the thing they must not forget.]
+
+---
+
+3. End with a hard stop:
+"Stop here. Say **next** and I'll teach: [bullet list of what comes next in the lecture]"
+
+Rules:
+- Each step must fit in ~50 words. If it doesn't, cut it.
+- No filler. "Core idea:" is a label, not a sentence opener like "The core idea is that..."
+- [PROFESSOR NOTE], [EMPHASIS], [HANDWRITTEN] tags in the materials = high signal. Surface them.
+- Check the conversation history — if the student said "next", continue from where you left off. Do not repeat.
+- Use a text block for the main content. Use a choice block at the end with "Next" and one other option.`,
 
     practice: `
 DETECTED MODE: PRACTICE — student wants one question to work through.
@@ -625,14 +604,16 @@ LIST FORMAT — bullets and numbered lists are both fine. Use whichever fits:
 - Append "[View slide →](FILENAME.pdf#page=N)" if you know a specific slide number`
 
   const blockSchema = `
-RESPONSE FORMAT: Return a JSON object with a "blocks" array. Raw JSON only — no markdown wrapping.
+RESPONSE FORMAT: Return a JSON object with a "blocks" array. Raw JSON only — no markdown wrapping, no code fences, no \`\`\`json. Start your response with { and end with }.
 
 Block types:
+- { "type": "text", "markdown": "..." } — free-form markdown. Use for natural prose, mixed explanations, anything that doesn't fit a rigid structure. Supports bold, italic, lists, LaTeX math ($...$), headers. Preferred in teach mode.
 - { "type": "summary", "text": "..." } — opening. Always exactly one, always first.
 - { "type": "bullets", "items": ["...", ...] } — rich markdown items (see BULLET FORMAT). Up to 10 items. Use multiple bullets blocks for distinct sections.
 - { "type": "highlight", "text": "..." } — callout for exam notes, warnings, practice problem lists.
 - { "type": "steps", "label": "Worked example", "items": ["Step 1: ...", "Step 2: ..."] } — numbered steps for worked examples. Each step is a markdown string with full arithmetic shown.
 - { "type": "question", "number": 1, "text": "...", "cite": "filename.pdf", "origin": "real" | "synthesized", "solution": ["Step 1: ...", "Step 2: ..."] } — a problem. Always include a "solution" array of step-by-step working. The UI hides it until the student clicks "Show Solution" — so write a complete, worked solution every time. Each step is a markdown string with full arithmetic shown. Set "origin": "real" ONLY when you reproduced a specific problem verbatim (or near-verbatim) from the loaded course materials — e.g. an actual past exam question, assignment problem, or numbered lecture example with given values. Set "origin": "synthesized" when you invented the problem values yourself based on the topic (even if the topic came from the materials). When origin is "real", set "cite" to the source filename.
+- { "type": "slide_ref", "cite": "filename.pdf", "page": N, "caption": "..." } — reference to a specific slide from the course materials. Use when explaining a concept that has a diagram, figure, or worked example on a specific page of the loaded PDFs. The extracted PDF text includes "Page N:" markers — use those to identify the right page number. "cite" must be the exact filename (e.g. "04_Lecture04_MECH241_W26.pdf"). "caption" is a short description of what the student will see (e.g. "Velocity profile between moving and stationary plate"). Place immediately after the concept it illustrates. Only use if you can identify the exact page number from the extracted text — never guess a page number.
 - { "type": "choice", "items": ["...", ...] } — 2–4 clickable follow-up options the student can tap to continue. Each item is a short action phrase (under 8 words). The student clicking one sends it as their next message.
 
 CHOICE BLOCK RULES — use sparingly, only where it genuinely helps:
@@ -663,35 +644,29 @@ ${sourceList}${courseContext}`
     { role: 'user', content: message },
   ]
 
-  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+  const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${process.env.OPENAI_API_KEY}` },
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}` },
     body: JSON.stringify({
-      model: 'gpt-4o',
-      max_tokens: mode === 'test' ? 4000 : mode === 'teach' ? 2000 : isOverviewQuery ? 2500 : 1600,
-      response_format: { type: 'json_object' },
+      model: 'anthropic/claude-3-5-haiku',
+      max_tokens: mode === 'test' ? 4000 : mode === 'teach' ? 1200 : isOverviewQuery ? 2500 : 1600,
       messages,
     }),
   })
   if (!res.ok) {
     const errText = await res.text()
-    console.error('[ask] OpenAI error:', res.status, errText.slice(0, 500))
-    return NextResponse.json({ error: 'OpenAI error', detail: errText.slice(0, 200) }, { status: 502 })
+    console.error('[ask] model error:', res.status, errText.slice(0, 500))
+    return NextResponse.json({ error: 'model error', detail: errText.slice(0, 200) }, { status: 502 })
   }
   const data = await res.json()
   if (!data.choices?.[0]?.message?.content) {
-    console.error('[ask] OpenAI empty response:', JSON.stringify(data).slice(0, 300))
+    console.error('[ask] OpenRouter empty response:', JSON.stringify(data).slice(0, 300))
   }
   const raw  = data.choices?.[0]?.message?.content || '{"blocks":[{"type":"summary","text":"Sorry, I had trouble responding."}]}'
 
   const { blocks, text } = parseBlocks(raw)
 
-  // Only surface sources the model actually referenced (filename appears in raw output or in a cite field)
-  const referencedSources = loadedSources.filter(s => {
-    const inText = raw.includes(s.filename)
-    const inCite = blocks.some(b => b.type === 'question' && b.cite && s.filename.includes(b.cite.split('#')[0]))
-    return inText || inCite
-  })
-
-  return NextResponse.json({ reply: text, blocks, sources: referencedSources, _debug: debug })
+  // Surface all loaded sources — the model was given these materials as context,
+  // so the answer is grounded in them even when the model doesn't cite a filename.
+  return NextResponse.json({ reply: text, blocks, sources: loadedSources, _debug: debug })
 }

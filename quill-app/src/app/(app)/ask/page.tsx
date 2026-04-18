@@ -457,7 +457,7 @@ function AskPageInner() {
       .catch(() => { setCourseList([]); setOnqConnected(false) })
   }, [])
 
-  // Reset conversation and drawer when course changes (skip if triggered by loadThread)
+  // Reset conversation and drawer when course changes, then fetch personalized starters
   useEffect(() => {
     if (loadingThreadRef.current) return
     setMessages([])
@@ -465,42 +465,45 @@ function AskPageInner() {
     setConfOpen(false)
     setLiveSuggestions([])
     setActiveThread(null)
+    setCourseStarters(null)
+    setStartersLoading(false)
     if (!courseId) { setCourse(null); return }
+
+    let cancelled = false
+
     fetch('/api/courses')
       .then(r => r.json())
-      .then((courses: Course[]) => {
+      .then(async (courses: Course[]) => {
+        if (cancelled) return
         const list = filterActiveCourses(Array.isArray(courses) ? courses : [])
         setCourseList(list)
         const idx  = list.findIndex(c => String(c.id) === courseId)
-        setCourse(idx >= 0 ? list[idx] : null)
+        const foundCourse = idx >= 0 ? list[idx] : null
+        setCourse(foundCourse)
         setCourseColorIdx(idx >= 0 ? idx : 0)
+
+        // Fetch personalized starters for this course
+        if (!foundCourse) return
+        setStartersLoading(true)
+        try {
+          const params = new URLSearchParams({ courseId: String(foundCourse.id), courseCode: foundCourse.code })
+          if (foundCourse.name) params.set('courseName', foundCourse.name)
+          const starterRes = await fetch(`/api/course-starters?${params}`)
+          if (cancelled) return
+          const starterData = starterRes.ok ? await starterRes.json() : { starters: [] }
+          if (Array.isArray(starterData.starters) && starterData.starters.length >= 2) {
+            setCourseStarters(starterData.starters)
+          }
+        } catch {}
+        if (!cancelled) setStartersLoading(false)
       })
       .catch(() => {
         setCourseList([])
         setCourse(null)
       })
-  }, [courseId])
 
-  // Fetch personalized starters when a course is selected
-  useEffect(() => {
-    if (!course) { setCourseStarters(null); return }
-    let cancelled = false
-    setStartersLoading(true)
-    setCourseStarters(null)
-    const params = new URLSearchParams({ courseId: String(course.id), courseCode: course.code })
-    if (course.name) params.set('courseName', course.name)
-    fetch(`/api/course-starters?${params}`)
-      .then(r => r.ok ? r.json() : { starters: [] })
-      .then(data => {
-        if (cancelled) return
-        if (Array.isArray(data.starters) && data.starters.length >= 2) {
-          setCourseStarters(data.starters)
-        }
-      })
-      .catch(() => {})
-      .finally(() => { if (!cancelled) setStartersLoading(false) })
     return () => { cancelled = true }
-  }, [course?.id])
+  }, [courseId])
 
   const loadThread = async (thread: Thread) => {
     loadingThreadRef.current = true

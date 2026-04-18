@@ -1,3 +1,5 @@
+import { QUILL_URL } from './config.js'
+
 const dot        = document.getElementById('dot')
 const statusText = document.getElementById('status-text')
 const lastSyncEl = document.getElementById('last-sync')
@@ -5,8 +7,6 @@ const hintEl     = document.getElementById('hint')
 const openQuill  = document.getElementById('open-quill')
 const signinBtn  = document.getElementById('signin-btn')
 const syncBtn    = document.getElementById('sync-btn')
-
-const QUILL_URL = 'https://quill-app-new.vercel.app'
 
 openQuill.href = QUILL_URL
 

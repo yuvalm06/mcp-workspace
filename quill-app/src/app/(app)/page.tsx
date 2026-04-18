@@ -19,6 +19,8 @@ type FeedItem = {
   sub: string
   action: string
   courseId: number
+  href: string
+  priority: number
 }
 
 
@@ -27,41 +29,65 @@ function buildFeedItems(exams: Exam[], deadlines: Deadline[], courses: Course[])
   const now = Date.now()
   const MS = 1000 * 60 * 60 * 24
 
+  // ── Exam-proximity items: proactive study suggestions ──
   for (const exam of [...exams].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())) {
-    if (items.length >= 3) break
-    const days = Math.ceil((new Date(exam.date).getTime() - now) / MS)
-    if (days < 0) continue
-    const idx = courses.findIndex(c => c.code === exam.courseCode)
-    items.push({
-      type:    'EXAM',
-      colorIdx: Math.max(0, idx),
-      code:    exam.courseCode,
-      title:   exam.title,
-      sub:     days === 0 ? 'Today — review key concepts' : `${days} day${days !== 1 ? 's' : ''} away — start your prep`,
-      action:  'Prepare →',
-      courseId: idx >= 0 ? courses[idx].id : 1,
-    })
+    const examDate = exam.date || (exam as any).exam_date
+    if (!examDate) continue
+    const days = Math.ceil((new Date(examDate).getTime() - now) / MS)
+    if (days < 0 || days > 14) continue
+
+    const code = exam.courseCode || (exam as any).course_name || ''
+    const idx = courses.findIndex(c => c.code === code)
+    const courseId = idx >= 0 ? courses[idx].id : (exam as any).course_id || 1
+    const colorIdx = Math.max(0, idx)
+
+    if (days <= 3) {
+      items.push({
+        type: 'PRACTICE', colorIdx, code,
+        title: 'Practice exam ready',
+        sub: days === 0
+          ? `${exam.title} is today — final practice round`
+          : `${exam.title} in ${days} day${days !== 1 ? 's' : ''} — test yourself`,
+        action: 'Start practice',
+        courseId, href: `/courses/${courseId}`, priority: 0,
+      })
+    } else if (days <= 7) {
+      items.push({
+        type: 'STUDY', colorIdx, code,
+        title: 'Review set ready',
+        sub: `${exam.title} in ${days} days — review key concepts`,
+        action: 'Start review',
+        courseId, href: `/ask?course=${courseId}`, priority: 1,
+      })
+    } else {
+      items.push({
+        type: 'RECALL', colorIdx, code,
+        title: 'Recall set available',
+        sub: `${exam.title} in ${days} days — build your recall`,
+        action: 'Start recall',
+        courseId, href: `/courses/${courseId}`, priority: 2,
+      })
+    }
   }
 
+  // ── Deadline items ──
   for (const dl of deadlines) {
-    if (items.length >= 3) break
     const days = Math.ceil((new Date(dl.endDate).getTime() - now) / MS)
     if (days < 0 || days > 7) continue
     const course = courses.find(c => c.id === dl.courseId)
     if (!course) continue
     const idx = courses.findIndex(c => c.id === dl.courseId)
     items.push({
-      type:    'DEADLINE',
-      colorIdx: Math.max(0, idx),
-      code:    course.code,
-      title:   dl.title,
-      sub:     days === 0 ? 'Due today' : `Due in ${days} day${days !== 1 ? 's' : ''}`,
-      action:  'Review →',
-      courseId: course.id,
+      type: 'DEADLINE', colorIdx: Math.max(0, idx), code: course.code,
+      title: dl.title,
+      sub: days === 0 ? 'Due today' : `Due in ${days} day${days !== 1 ? 's' : ''}`,
+      action: 'Review →',
+      courseId: course.id, href: `/ask?course=${course.id}`, priority: 3,
     })
   }
 
-  return items
+  items.sort((a, b) => a.priority - b.priority)
+  return items.slice(0, 5)
 }
 
 // ── Dynamic greeting sub-line ─────────────────────────────────────────────────
@@ -296,6 +322,36 @@ export default function Dashboard() {
       setSubline(getSubline(examList, deadlineList, weekNum))
       setThreadCount(Array.isArray(threadData) ? threadData.length : 0)
       setLoading(false)
+
+      // Background: sync exam dates from announcements — throttled to once per 24 hours.
+      // Passes the last sync timestamp so D2L only returns new/updated announcements.
+      const d2lCourses = (Array.isArray(pulled) ? pulled : [])
+        .filter((c: any) => c.id && c.code)
+        .map((c: any) => ({ id: c.id, code: c.code, name: c.name || c.code }))
+      if (d2lCourses.length > 0) {
+        const SYNC_KEY = 'quill_exams_synced_at'
+        const lastSyncMs = Number(localStorage.getItem(SYNC_KEY) || '0')
+        const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000
+        if (Date.now() - lastSyncMs > TWENTY_FOUR_HOURS) {
+          const since = lastSyncMs > 0 ? new Date(lastSyncMs).toISOString() : undefined
+          localStorage.setItem(SYNC_KEY, String(Date.now()))
+          fetch('/api/sync-exams', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ courses: d2lCourses, since }),
+          })
+            .then(r => r.json())
+            .then(result => {
+              if (result.synced > 0) {
+                // Refresh exam list to show newly discovered dates
+                fetch('/api/exams').then(r => r.json()).then(fresh => {
+                  if (Array.isArray(fresh)) setExams(fresh)
+                }).catch(() => {})
+              }
+            })
+            .catch(() => {})
+        }
+      }
     })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -381,39 +437,43 @@ export default function Dashboard() {
         </div>
 
         {/* From Quill feed */}
-        {(() => {
-          const feedItems = buildFeedItems(exams, deadlines, allCourses)
-          if (loading || feedItems.length === 0) return null
-          return (
-            <div className={s.fromQuillSection}>
-              <div className={s.sectionHeader}>
-                <span className={s.sectionLabel}>Coming up</span>
-              </div>
-              <div className={s.feed}>
-                {feedItems.map((item, i) => {
-                  const color = getCourseColor(item.colorIdx)
-                  return (
-                    <div key={i} className={s.feedCard}>
-                      <div className={s.feedBody}>
-                        <div className={s.feedEyebrow}>
-                          <span className={s.feedTypePill} style={{ background: color.tint, color: color.accent }}>
-                            {item.type}
-                          </span>
-                          <span className={s.feedCode}>{item.code}</span>
-                        </div>
-                        <p className={s.feedTitle}>{item.title}</p>
-                        <p className={s.feedSub}>{item.sub}</p>
-                      </div>
-                      <Link href={`/ask?course=${item.courseId}`} className={s.feedAction}>
-                        {item.action}
-                      </Link>
-                    </div>
-                  )
-                })}
-              </div>
+        {!loading && (
+          <div className={s.fromQuillSection}>
+            <div className={s.sectionHeader}>
+              <span className={s.sectionLabel}>From Quill</span>
             </div>
-          )
-        })()}
+            {(() => {
+              const feedItems = buildFeedItems(exams, deadlines, allCourses)
+              if (feedItems.length === 0) {
+                return <p className={s.preparedMsg}>You&rsquo;re prepared.</p>
+              }
+              return (
+                <div className={s.feed}>
+                  {feedItems.map((item, i) => {
+                    const color = getCourseColor(item.colorIdx)
+                    return (
+                      <Link key={i} href={item.href} className={s.feedCard}>
+                        <div className={s.feedBody}>
+                          <div className={s.feedEyebrow}>
+                            <span className={s.feedTypePill} style={{ background: color.tint, color: color.accent }}>
+                              {item.type}
+                            </span>
+                            <span className={s.feedCode}>{item.code}</span>
+                          </div>
+                          <p className={s.feedTitle}>{item.title}</p>
+                          <p className={s.feedSub}>{item.sub}</p>
+                        </div>
+                        <span className={s.feedAction}>
+                          {item.action}
+                        </span>
+                      </Link>
+                    )
+                  })}
+                </div>
+              )
+            })()}
+          </div>
+        )}
 
       </div>
 

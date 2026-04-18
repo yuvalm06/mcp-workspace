@@ -346,6 +346,15 @@
 /* ── From Quill feed ── */
 .fromQuillSection { flex: 1; min-width: 0; }
 
+.preparedMsg {
+  font-family: var(--f-serif);
+  font-size: 18px;
+  font-weight: 300;
+  font-style: italic;
+  color: var(--ink-ghost);
+  padding: 8px 0;
+}
+
 .feed { display: flex; flex-direction: column; gap: 6px; max-width: 560px; }
 
 .feedCard {
@@ -654,6 +663,51 @@
 }
 .connectPromptBtn:hover { background: rgba(24,22,15,0.14); }
 .connectPromptBtn:active { transform: scale(0.96); }
+
+/* ── Mobile ── */
+@media (max-width: 767px) {
+  .main {
+    flex-direction: column;
+  }
+
+  .content {
+    padding: 20px 16px;
+    gap: 20px;
+  }
+
+  .headline {
+    font-size: 30px;
+  }
+
+  .sidebar {
+    display: none;
+  }
+
+  .modal {
+    width: min(380px, calc(100vw - 32px));
+  }
+
+  .coursesScroll {
+    margin-right: -16px;
+    padding-right: 8px;
+  }
+
+  /* Always show exactly 2.3 cards regardless of screen width:
+     visible scroll area = 100vw - 16px left padding
+     card_width = (area - 2 gaps) / 2.3 */
+  .folderWrap {
+    width: calc((100vw - 56px) / 2.3);
+  }
+
+  .folderAdd {
+    width: calc((100vw - 56px) / 2.3);
+    min-height: 120px;
+  }
+
+  .feed {
+    max-width: 100%;
+  }
+}
 
 /* ── Reduced motion ── */
 @media (prefers-reduced-motion: reduce) {

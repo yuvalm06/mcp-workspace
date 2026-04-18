@@ -54,3 +54,27 @@ body::after {
   visibility: visible !important;
   opacity: 1 !important;
 }
+
+/* ── Mobile app shell ── */
+:root {
+  --nav-h-mobile: 56px;
+}
+
+.app-body {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.app-content {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+@media (max-width: 767px) {
+  .app-content {
+    padding-bottom: calc(var(--nav-h-mobile) + env(safe-area-inset-bottom, 0px));
+  }
+}

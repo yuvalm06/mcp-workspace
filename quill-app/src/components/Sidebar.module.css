@@ -4,3 +4,42 @@
 .btn:hover {
   color: #3A5F9E !important;
 }
+
+/* ── Mobile bottom nav ── */
+@media (max-width: 767px) {
+  .root {
+    position: fixed !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    top: auto !important;
+    width: 100vw !important;
+    height: calc(var(--nav-h-mobile) + env(safe-area-inset-bottom, 0px)) !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: space-around !important;
+    padding: 0 8px env(safe-area-inset-bottom, 0px) !important;
+    border-right: none !important;
+    border-top: 0.5px solid rgba(154, 146, 132, 0.25) !important;
+    gap: 0 !important;
+    z-index: 50;
+    backdrop-filter: blur(12px) !important;
+  }
+
+  .desktopOnly {
+    display: none !important;
+  }
+
+  .navGroup {
+    flex-direction: row !important;
+    position: static !important;
+  }
+
+  .blob {
+    display: none !important;
+  }
+
+  .spacer {
+    display: none !important;
+  }
+}

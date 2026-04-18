@@ -1,12 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-const PUBLIC_PATHS = [
-  '/login',
-  '/signup',
-  '/api/auth/login',
-  '/api/auth/signup',
-  '/api/auth/refresh',
-]
+const PUBLIC_PATHS = ['/login', '/signup']
 
 function isPublic(pathname: string) {
   return PUBLIC_PATHS.some(p => pathname === p || pathname.startsWith(p + '/'))
@@ -22,26 +16,68 @@ function tokenIsValid(token: string): boolean {
   }
 }
 
-export function proxy(request: NextRequest) {
+const COOKIE_OPTS = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: 'lax' as const,
+  path: '/',
+}
+
+export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
   const accessToken = request.cookies.get('sb-access-token')?.value
+  const refreshToken = request.cookies.get('sb-refresh-token')?.value
   const isAuthed = !!accessToken && tokenIsValid(accessToken)
 
-  // Redirect unauthenticated users away from protected routes
-  if (!isPublic(pathname) && !pathname.startsWith('/api/') && !isAuthed) {
-    const url = request.nextUrl.clone()
-    url.pathname = '/login'
-    return NextResponse.redirect(url)
-  }
-
   // Redirect authenticated users away from login/signup
-  if (isAuthed && (pathname === '/login' || pathname === '/signup')) {
-    const url = request.nextUrl.clone()
-    url.pathname = '/'
-    return NextResponse.redirect(url)
+  if (isAuthed && isPublic(pathname)) {
+    return NextResponse.redirect(new URL('/', request.url))
   }
 
-  return NextResponse.next()
+  // Public pages don't need auth
+  if (isPublic(pathname)) {
+    return NextResponse.next()
+  }
+
+  // Valid token → pass through
+  if (isAuthed) {
+    return NextResponse.next()
+  }
+
+  // Access token expired but refresh token exists → try silent refresh
+  if (refreshToken) {
+    try {
+      const res = await fetch(
+        `${process.env.SUPABASE_URL!}/auth/v1/token?grant_type=refresh_token`,
+        {
+          method: 'POST',
+          headers: {
+            'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY!,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ refresh_token: refreshToken }),
+        },
+      )
+      if (res.ok) {
+        const data = await res.json()
+        const response = NextResponse.next()
+        response.cookies.set('sb-access-token', data.access_token, {
+          ...COOKIE_OPTS,
+          maxAge: data.expires_in ?? 3600,
+        })
+        response.cookies.set('sb-refresh-token', data.refresh_token, {
+          ...COOKIE_OPTS,
+          maxAge: 60 * 60 * 24 * 7,
+        })
+        return response
+      }
+    } catch {
+      // refresh failed — fall through to redirect
+    }
+  }
+
+  // No valid session → login
+  return NextResponse.redirect(new URL('/login', request.url))
 }
 
 export const config = {

@@ -25,3 +25,4 @@ study-mcp-bastion-key.pem
 
 # Setup agent (separate project)
 setup-agent-mac/
+.vercel

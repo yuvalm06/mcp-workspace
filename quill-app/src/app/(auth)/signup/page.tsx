@@ -30,7 +30,7 @@ export default function SignupPage() {
       const data = await res.json()
       if (!res.ok) { setError(data.error || 'Could not create account'); return }
       if (data.confirm) { setCheckEmail(true); return }
-      window.location.href = '/'
+      window.location.href = '/onboarding'
     } catch {
       setError('Could not connect. Try again.')
     } finally {

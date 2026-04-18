@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getUserFromRequest, unauthorized } from '@/lib/auth'
 
+export const maxDuration = 60
+
 export type ParsedCourse = {
   courseCode: string
   title: string
@@ -43,8 +45,8 @@ export async function POST(req: NextRequest) {
 
   if (!res.ok) {
     const err = await res.text()
-    console.error('[schedule-import] OpenRouter error:', err.slice(0, 300))
-    return NextResponse.json({ error: 'Failed to parse image' }, { status: 502 })
+    console.error('[schedule-import] OpenRouter error:', err.slice(0, 500))
+    return NextResponse.json({ error: 'Failed to parse image', detail: err.slice(0, 500) }, { status: 502 })
   }
 
   const data = await res.json()

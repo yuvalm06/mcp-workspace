@@ -1,65 +1,82 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getUserFromRequest, unauthorized } from '@/lib/auth'
-
-// W26 course IDs with their codes for mapping
-const W26_COURSES = [
-  { id: 1109841, code: 'MECH 241' },
-  { id: 1110300, code: 'MECH 210' },
-  { id: 1111819, code: 'MECH 228' },
-  { id: 1112937, code: 'MECH 203' },
-  { id: 1123309, code: 'APSC 200' },
-  { id: 1124097, code: 'MECH 273' },
-]
-
-async function mcpCall(sessionId: string, userId: string, toolName: string, args: Record<string, unknown>) {
-  const MCP_URL = process.env.MCP_URL || 'http://localhost:3000/mcp'
-  const res = await fetch(MCP_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json, text/event-stream', 'mcp-session-id': sessionId, 'x-user-id': userId },
-    body: JSON.stringify({ jsonrpc: '2.0', method: 'tools/call', params: { name: toolName, arguments: args }, id: Math.random() }),
-  })
-  const text = await res.text()
-  const line = text.split('\n').find(l => l.startsWith('data:'))
-  if (!line) return null
-  const json = JSON.parse(line.slice(5))
-  const content = json.result?.content?.[0]?.text
-  if (!content) return null
-  try { return JSON.parse(content) } catch { return null }
-}
+import { D2L_API, getD2LSession, d2lGet } from '@/lib/d2l'
+import { filterActiveCourses } from '@/lib/coursePrefs'
 
 export async function GET(req: NextRequest) {
   const user = await getUserFromRequest(req)
   if (!user) return unauthorized()
 
-  const MCP_URL = process.env.MCP_URL || 'http://localhost:3000/mcp'
-
-  const initRes = await fetch(MCP_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json, text/event-stream' },
-    body: JSON.stringify({ jsonrpc: '2.0', method: 'initialize', params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'quill-app', version: '1.0' } }, id: 1 }),
-  })
-  const sessionId = initRes.headers.get('mcp-session-id')
-  if (!sessionId) return NextResponse.json({ error: 'No session' }, { status: 500 })
+  const d2l = await getD2LSession(user.id)
+  if (!d2l) return NextResponse.json([])
 
   const daysAhead = Number(new URL(req.url).searchParams.get('daysAhead') || 60)
+  const now       = new Date()
+  const start     = now.toISOString()
+  const end       = new Date(now.getTime() + daysAhead * 24 * 60 * 60 * 1000).toISOString()
 
+  // Fetch user's active courses (reuse the same logic as /api/courses)
+  let courseList: { id: number; code: string }[] = []
+  try {
+    const allItems: any[] = []
+    let bookmark: string | null = null
+    const d2lHost = d2l.host
+
+    while (true) {
+      const url: string = bookmark
+        ? `https://${d2lHost}/d2l/api/lp/1.43/enrollments/myenrollments/?bookmark=${encodeURIComponent(bookmark)}`
+        : `https://${d2lHost}/d2l/api/lp/1.43/enrollments/myenrollments/`
+      const res = await fetch(url, { headers: { Cookie: d2l.cookieHeader } })
+      if (!res.ok) break
+      const data = await res.json()
+      allItems.push(...(data.Items || []))
+      if (data.PagingInfo?.HasMoreItems && data.PagingInfo.Bookmark) {
+        bookmark = data.PagingInfo.Bookmark
+      } else {
+        break
+      }
+    }
+
+    const raw = allItems
+      .filter((e: any) => e.OrgUnit.Type.Code === 'Course Offering')
+      .map((e: any) => ({
+        id:        e.OrgUnit.Id,
+        name:      e.OrgUnit.Name,
+        code:      e.OrgUnit.Code,
+        canAccess: e.Access.CanAccess,
+        isActive:  e.Access.IsActive,
+        lastAccessed: e.Access.LastAccessed,
+      }))
+
+    courseList = filterActiveCourses(raw)
+  } catch (err) {
+    console.error('[deadlines] course fetch failed:', err)
+    return NextResponse.json([])
+  }
+
+  if (courseList.length === 0) return NextResponse.json([])
+
+  // Fetch calendar events for each course in parallel
+  const params = new URLSearchParams({ startDateTime: start, endDateTime: end }).toString()
   const results = await Promise.allSettled(
-    W26_COURSES.map(async (course) => {
-      const events = await mcpCall(sessionId, user.id, 'get_upcoming_due_dates', { orgUnitId: course.id, daysBack: 0, daysAhead })
-      return { courseId: course.id, courseCode: course.code, events: events || [] }
+    courseList.map(async (course) => {
+      const data = await d2lGet(d2l, `/d2l/api/le/${D2L_API}/${course.id}/calendar/events/myEvents/?${params}`)
+      const objects: any[] = data?.Objects || []
+      return objects.map((e: any) => ({
+        title:      e.Title,
+        endDate:    e.EndDateTime,
+        courseId:   course.id,
+        courseCode: course.code,
+      }))
     })
   )
 
   const allDeadlines: any[] = []
-  for (const result of results) {
-    if (result.status === 'fulfilled') {
-      for (const event of result.value.events) {
-        allDeadlines.push({ ...event, courseId: result.value.courseId, courseCode: result.value.courseCode })
-      }
-    }
+  for (const r of results) {
+    if (r.status === 'fulfilled') allDeadlines.push(...r.value)
   }
 
-  allDeadlines.sort((a, b) => new Date(a.dueDateIso || 0).getTime() - new Date(b.dueDateIso || 0).getTime())
+  allDeadlines.sort((a, b) => new Date(a.endDate).getTime() - new Date(b.endDate).getTime())
 
   return NextResponse.json(allDeadlines)
 }

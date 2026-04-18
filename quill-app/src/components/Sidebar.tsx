@@ -89,7 +89,7 @@ export default function Sidebar() {
       : 'transform 0.14s ease-out, height 0.14s ease-out'
 
   return (
-    <aside style={{
+    <aside className={s.root} style={{
       width: 72,
       background: 'rgba(247,244,239,0.7)',
       borderRight: '0.5px solid rgba(154,146,132,0.25)',
@@ -113,6 +113,7 @@ export default function Sidebar() {
 
       {/* Logo */}
       <div
+        className={s.desktopOnly}
         style={{ width: 40, height: 40, marginBottom: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', cursor: 'default' }}
         onMouseEnter={openLogo}
         onMouseLeave={closeLogo}
@@ -175,11 +176,11 @@ export default function Sidebar() {
       </div>
 
       {/* Nav group with goo blob */}
-      <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', gap: ITEM_GAP }}>
+      <div className={s.navGroup} style={{ position: 'relative', display: 'flex', flexDirection: 'column', gap: ITEM_GAP }}>
 
         {/* Goo blob layer — absolutely positioned behind the links */}
         {activeIdx >= 0 && (
-          <div style={{
+          <div className={s.blob} style={{
             position: 'absolute', inset: 0,
             filter: 'url(#goo-nav)',
             opacity: 0.13,
@@ -221,7 +222,7 @@ export default function Sidebar() {
       </div>
 
       {/* Divider + add — sit below nav with extra breathing room */}
-      <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+      <div className={s.desktopOnly} style={{ marginTop: 10, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
         <div style={{ width: 32, height: 0.5, background: 'rgba(154,146,132,0.25)' }} />
         <div
           className={s.btn}
@@ -341,7 +342,7 @@ export default function Sidebar() {
         })}
       </div>
 
-      <div style={{ flex: 1 }} />
+      <div className={s.spacer} style={{ flex: 1 }} />
 
       {/* Notification bell */}
       <div
@@ -383,7 +384,7 @@ export default function Sidebar() {
       {/* Logout */}
       <button
         title="Sign out"
-        className={s.btn}
+        className={`${s.btn} ${s.desktopOnly}`}
         onClick={async () => {
           await fetch('/api/auth/logout', { method: 'POST' })
           window.location.href = '/login'

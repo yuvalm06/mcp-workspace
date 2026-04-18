@@ -10,11 +10,27 @@ const SESSION_COOKIE_OPTS = {
   path: '/',
 }
 
+function corsHeaders(req: NextRequest) {
+  const origin = req.headers.get('origin') || ''
+  const allowed = origin.startsWith('chrome-extension://') || origin.startsWith('http://localhost')
+  return {
+    'Access-Control-Allow-Origin': allowed ? origin : '',
+    'Access-Control-Allow-Credentials': 'true',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type',
+  }
+}
+
+export async function OPTIONS(req: NextRequest) {
+  return new NextResponse(null, { status: 204, headers: corsHeaders(req) })
+}
+
 export async function POST(req: NextRequest) {
   const refreshToken = req.cookies.get('sb-refresh-token')?.value
+  const cors = corsHeaders(req)
 
   if (!refreshToken) {
-    return NextResponse.json({ error: 'No refresh token' }, { status: 401 })
+    return NextResponse.json({ error: 'No refresh token' }, { status: 401, headers: cors })
   }
 
   const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
@@ -26,13 +42,13 @@ export async function POST(req: NextRequest) {
   const data = await res.json()
 
   if (!res.ok) {
-    const response = NextResponse.json({ error: 'Session expired' }, { status: 401 })
+    const response = NextResponse.json({ error: 'Session expired' }, { status: 401, headers: cors })
     response.cookies.set('sb-access-token', '', { maxAge: 0, path: '/' })
     response.cookies.set('sb-refresh-token', '', { maxAge: 0, path: '/' })
     return response
   }
 
-  const response = NextResponse.json({ ok: true })
+  const response = NextResponse.json({ ok: true }, { headers: cors })
   response.cookies.set('sb-access-token', data.access_token, {
     ...SESSION_COOKIE_OPTS,
     maxAge: data.expires_in ?? 3600,

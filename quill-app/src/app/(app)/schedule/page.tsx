@@ -375,7 +375,7 @@ function ImportWizard({ courses: courseList, onDone, onClose }: {
         body: JSON.stringify({ image, notes }),
       })
       const data = await res.json()
-      if (!res.ok) { setParseError(data.error || 'Failed to parse'); return }
+      if (!res.ok) { setParseError((data.error || 'Failed to parse') + (data.detail ? `: ${data.detail}` : '')); return }
       setParsed(data.courses)
       setSelected(new Set(data.courses.map((_: any, i: number) => i)))
       setStep('preview')

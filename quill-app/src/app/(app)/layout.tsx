@@ -9,9 +9,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     <UserProvider>
     <NotifProvider>
       <RoutineProvider>
-        <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
+        <div className="app-body">
           <Sidebar />
-          <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+          <div className="app-content">
             {children}
           </div>
         </div>
